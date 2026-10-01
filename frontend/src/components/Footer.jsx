@@ -26,9 +26,6 @@ const linkGroups = [
 const linkClass =
   "group flex items-center gap-1.5 text-sm text-[#59645c] transition-all duration-200 hover:translate-x-1 hover:text-[#486B57] focus-visible:outline-none focus-visible:underline focus-visible:underline-offset-4";
 
-const socialClass =
-  "flex h-10 w-10 items-center justify-center rounded-full border border-[#E3E5DF] bg-white text-[#59645c] transition-all duration-200 hover:-translate-y-1 hover:border-[#486B57] hover:bg-[#DCE7DE] hover:text-[#385744] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/30";
-
 function Footer() {
   const scrollToTop = () => {
     const top = document.getElementById("page-top");
@@ -71,33 +68,6 @@ function Footer() {
                 className="transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
               />
             </a>
-
-            {/* Social links */}
-            <div className="mt-6 flex gap-2">
-              <a
-                href="#"
-                aria-label="Instagram"
-                className={socialClass}
-              >
-                <span className="text-xs font-bold">IG</span>
-              </a>
-
-              <a
-                href="#"
-                aria-label="Facebook"
-                className={socialClass}
-              >
-                <span className="text-xs font-bold">FB</span>
-              </a>
-
-              <a
-                href="#"
-                aria-label="X"
-                className={socialClass}
-              >
-                <span className="text-xs font-bold">X</span>
-              </a>
-            </div>
           </div>
 
           {/* Navigation */}
@@ -199,7 +169,7 @@ function Footer() {
           <button
             type="button"
             onClick={scrollToTop}
-            className="group inline-flex items-center gap-2 self-start rounded-full border border-[#E3E5DF] px-4 py-2.5 text-xs font-medium text-[#59645c] transition-all duration-200 hover:-translate-y-1 hover:border-[#486B57] hover:bg-[#DCE7DE] hover:text-[#385744] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/30 sm:self-auto"
+            className="group inline-flex items-center gap-2 self-start rounded-full border border-[#E3E5DF] px-4 py-2.5 text-xs font-medium text-[#59645c] transition-all duration-200 hover:-translate-y-1 hover:border-[#486B57] hover:bg-[#DCE7DE] hover:text-[#385744] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/30 sm:self-auto cursor-pointer"
           >
             <span>Back to top</span>
 

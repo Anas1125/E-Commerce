@@ -30,6 +30,9 @@ import AdminRefunds from "../pages/AdminRefunds";
 import AdminSiteSettings from "../pages/AdminSiteSettings";
 
 import MainLayout from "../layouts/MainLayout";
+import ScrollToTop from "../components/ScrollToTop";
+import Privacy from "../pages/Privacy";
+import Terms from "../pages/Terms";
 import AdminLayout from "../components/AdminLayout";
 import ProtectedRoute from "../components/ProtectedRoute";
 import AdminRoute from "../components/AdminRoute";
@@ -50,6 +53,7 @@ function AppRoutes() {
 
   return (
     <BrowserRouter>
+    <ScrollToTop />
       <Routes>
         {/* Customer storefront */}
         <Route element={<MainLayout />}>
@@ -73,6 +77,8 @@ function AppRoutes() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
           <Route
             path="/forgot-password"
             element={

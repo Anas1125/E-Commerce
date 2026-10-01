@@ -93,3 +93,27 @@ textarea {
   border-color: #486b57;
   outline: 2px solid #dce7de;
 }
+
+.category-track {
+  animation: category-scroll 35s linear infinite;
+}
+
+.category-track.paused {
+  animation-play-state: paused;
+}
+
+@keyframes category-scroll {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .category-track {
+    animation: none;
+  }
+}
