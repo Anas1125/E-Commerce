@@ -6,6 +6,9 @@ const AuthContext = createContext({
   login: () => {},
   logout: () => {},
   isAuthenticated: false,
+  cartCount: 0,
+  wishlistCount: 0,
+  refreshCounts: async () => {},
 });
 
 export default AuthContext;

@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import {
-  Heart,
-  Minus,
-  Plus,
-  ShoppingBag,
-  Star,
-} from "lucide-react";
+import { Heart, Minus, Plus, ShoppingBag, Star } from "lucide-react";
 
 import api from "../services/api";
 import ProductCard from "../components/ProductCard";
@@ -16,13 +10,14 @@ import { LoadingState, Price } from "../components/Storefront";
 function ProductDetails() {
   const { id } = useParams();
 
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, refreshCounts } = useAuth();
   const [product, setProduct] = useState(null);
   const [imageUrl, setImageUrl] = useState(null);
   const [saved, setSaved] = useState(false);
   const [reviewsError, setReviewsError] = useState("");
   const [reviews, setReviews] = useState([]);
   const [suggestedProducts, setSuggestedProducts] = useState([]);
+  const [suggestedImages, setSuggestedImages] = useState({});
 
   const [loading, setLoading] = useState(true);
   const [reviewsLoading, setReviewsLoading] = useState(true);
@@ -36,7 +31,16 @@ function ProductDetails() {
       try {
         const response = await api.get(`/products/${id}`);
         setProduct(response.data);
-        try { const images = await api.get(`/products/${id}/images`); setImageUrl(images.data.find((image) => image.is_primary)?.image_url || images.data[0]?.image_url || null); } catch { setImageUrl(null); }
+        try {
+          const images = await api.get(`/products/${id}/images`);
+          setImageUrl(
+            images.data.find((image) => image.is_primary)?.image_url ||
+              images.data[0]?.image_url ||
+              null,
+          );
+        } catch {
+          setImageUrl(null);
+        }
       } catch (error) {
         console.error("Failed to load product:", error);
         setProduct(null);
@@ -55,9 +59,7 @@ function ProductDetails() {
 
     const fetchReviews = async () => {
       try {
-        const response = await api.get(
-          `/products/${product.id}/reviews`
-        );
+        const response = await api.get(`/products/${product.id}/reviews`);
 
         setReviews(response.data);
       } catch (error) {
@@ -72,7 +74,7 @@ function ProductDetails() {
         const response = await api.get("/products/");
 
         const otherProducts = response.data.filter(
-          (item) => item.id !== product.id
+          (item) => item.id !== product.id,
         );
 
         const scoredProducts = otherProducts.map((item) => {
@@ -117,30 +119,41 @@ function ProductDetails() {
         });
 
         scoredProducts.sort(
-          (a, b) =>
-            b.recommendationScore - a.recommendationScore
+          (a, b) => b.recommendationScore - a.recommendationScore,
         );
 
-        setSuggestedProducts(
-          scoredProducts.slice(0, 4)
+        const recommendations = scoredProducts.slice(0, 4);
+        setSuggestedProducts(recommendations);
+        const imageResults = await Promise.all(
+          recommendations.map(async (item) => {
+            try {
+              const images = await api.get(`/products/${item.id}/images`);
+              return [
+                item.id,
+                images.data.find((image) => image.is_primary)?.image_url ||
+                  images.data[0]?.image_url ||
+                  null,
+              ];
+            } catch {
+              return [item.id, null];
+            }
+          }),
+        );
+        setSuggestedImages(
+          Object.fromEntries(imageResults.filter(([, url]) => url)),
         );
       } catch (error) {
-        console.error(
-          "Failed to load suggested products:",
-          error
-        );
+        console.error("Failed to load suggested products:", error);
 
         setSuggestedProducts([]);
+        setSuggestedImages({});
       }
     };
 
     const loadProductExtras = async () => {
       setReviewsLoading(true);
 
-      await Promise.all([
-        fetchReviews(),
-        fetchSuggestedProducts(),
-      ]);
+      await Promise.all([fetchReviews(), fetchSuggestedProducts()]);
 
       setReviewsLoading(false);
     };
@@ -148,14 +161,17 @@ function ProductDetails() {
     loadProductExtras();
   }, [product]);
 
-  if (loading) return <div className="mx-auto max-w-7xl px-6 py-16"><LoadingState label="Loading product…" /></div>;
+  if (loading)
+    return (
+      <div className="mx-auto max-w-7xl px-6 py-16">
+        <LoadingState label="Loading product…" />
+      </div>
+    );
 
   if (!product) {
     return (
       <div className="mx-auto max-w-7xl px-6 py-20 text-center">
-        <h1 className="text-2xl font-bold">
-          Product not found
-        </h1>
+        <h1 className="text-2xl font-bold">Product not found</h1>
 
         <Link
           to="/shop"
@@ -167,21 +183,36 @@ function ProductDetails() {
     );
   }
 
-  const outOfStock = product.stock <= 0;
+  const availableStock = Number(product.available_stock ?? product.stock ?? 0);
+  const outOfStock = availableStock <= 0;
 
   const decreaseQuantity = () => {
     setQuantity((current) => Math.max(1, current - 1));
   };
 
   const increaseQuantity = () => {
-    setQuantity((current) =>
-      Math.min(product.stock, current + 1)
-    );
+    setQuantity((current) => Math.min(availableStock, current + 1));
   };
 
   const handleWishlist = async () => {
-    if (!isAuthenticated) { setMessage("Please sign in to save this product."); return; }
-    try { if (saved) { await api.delete(`/wishlist/${product.id}`); setSaved(false); setMessage("Removed from wishlist."); } else { await api.post(`/wishlist/${product.id}`); setSaved(true); setMessage("Saved to wishlist."); } } catch (error) { setMessage(error.response?.data?.detail || "Unable to update wishlist."); }
+    if (!isAuthenticated) {
+      setMessage("Please sign in to save this product.");
+      return;
+    }
+    try {
+      if (saved) {
+        await api.delete(`/wishlist/${product.id}`);
+        setSaved(false);
+        setMessage("Removed from wishlist.");
+      } else {
+        await api.post(`/wishlist/${product.id}`);
+        setSaved(true);
+        setMessage("Saved to wishlist.");
+      }
+      await refreshCounts();
+    } catch (error) {
+      setMessage(error.response?.data?.detail || "Unable to update wishlist.");
+    }
   };
 
   const handleAddToCart = async () => {
@@ -194,23 +225,18 @@ function ProductDetails() {
         quantity,
       });
 
+      await refreshCounts();
+
       setMessage("Added to cart successfully.");
     } catch (error) {
       console.error("Failed to add product to cart:", error);
 
       const detail = error.response?.data?.detail;
 
-      if (
-        error.response?.status === 401 ||
-        detail === "Not authenticated"
-      ) {
-        setMessage(
-          "Please log in to add this product to your cart."
-        );
+      if (error.response?.status === 401 || detail === "Not authenticated") {
+        setMessage("Please log in to add this product to your cart.");
       } else {
-        setMessage(
-          detail || "Unable to add this product to your cart."
-        );
+        setMessage(detail || "Unable to add this product to your cart.");
       }
     } finally {
       setAdding(false);
@@ -221,19 +247,13 @@ function ProductDetails() {
     <div className="mx-auto max-w-7xl px-6 py-10">
       {/* Breadcrumb */}
       <div className="mb-7 text-xs text-[#737A74]">
-        <Link
-          to="/"
-          className="hover:text-[#486B57]"
-        >
+        <Link to="/" className="hover:text-[#486B57]">
           Home
         </Link>
 
         <span className="mx-2">/</span>
 
-        <Link
-          to="/shop"
-          className="hover:text-[#486B57]"
-        >
+        <Link to="/shop" className="hover:text-[#486B57]">
           Shop
         </Link>
 
@@ -246,12 +266,25 @@ function ProductDetails() {
       <section className="grid gap-10 lg:grid-cols-2">
         {/* Image */}
         <div className="relative">
-          <button type="button" onClick={handleWishlist} aria-label={saved ? "Remove from wishlist" : "Add to wishlist"} className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm transition hover:bg-[#DCE7DE]">
+          <button
+            type="button"
+            onClick={handleWishlist}
+            aria-label={saved ? "Remove from wishlist" : "Add to wishlist"}
+            className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm transition hover:bg-[#DCE7DE]"
+          >
             <Heart size={18} fill={saved ? "currentColor" : "none"} />
           </button>
 
           <div className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl border border-[#E3E5DF] bg-[#F5F5F1]">
-            {imageUrl ? <img src={imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <span className="text-sm text-[#737A74]">Image coming soon</span>}
+            {imageUrl ? (
+              <img
+                src={imageUrl}
+                alt={product.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-sm text-[#737A74]">Image coming soon</span>
+            )}
           </div>
         </div>
 
@@ -268,11 +301,7 @@ function ProductDetails() {
           {/* Rating */}
           <div className="mt-4 flex items-center gap-2">
             <div className="flex items-center gap-1">
-              <Star
-                size={16}
-                fill="currentColor"
-                className="text-[#486B57]"
-              />
+              <Star size={16} fill="currentColor" className="text-[#486B57]" />
 
               <span className="text-sm font-medium">
                 {Number(product.rating || 0).toFixed(1)}
@@ -285,29 +314,27 @@ function ProductDetails() {
           </div>
 
           {/* Price */}
-          <Price value={product.price} className="mt-5 block text-2xl font-bold" />
+          <Price
+            value={product.price}
+            className="mt-5 block text-2xl font-bold"
+          />
 
           {/* Description */}
           <div className="mt-6 border-t border-[#E3E5DF] pt-6">
-            <h2 className="text-base font-semibold">
-              Description
-            </h2>
+            <h2 className="text-base font-semibold">Description</h2>
 
             <p className="mt-2 max-w-xl text-sm leading-6 text-[#737A74]">
-              {product.description ||
-                "No description available."}
+              {product.description || "No description available."}
             </p>
           </div>
 
           {/* Stock */}
           <div className="mt-5">
             {outOfStock ? (
-              <p className="text-sm font-medium text-red-600">
-                Out of stock
-              </p>
+              <p className="text-sm font-medium text-red-600">Out of stock</p>
             ) : (
               <p className="text-sm font-medium text-[#486B57]">
-                {product.stock} available
+                {availableStock} available
               </p>
             )}
           </div>
@@ -315,9 +342,7 @@ function ProductDetails() {
           {/* Quantity */}
           {!outOfStock && (
             <div className="mt-5 flex items-center gap-4">
-              <span className="text-sm font-medium">
-                Quantity
-              </span>
+              <span className="text-sm font-medium">Quantity</span>
 
               <div className="flex items-center overflow-hidden rounded-lg border border-[#E3E5DF] bg-white">
                 <button
@@ -381,20 +406,18 @@ function ProductDetails() {
             Customer feedback
           </p>
 
-          <h2 className="mt-2 text-2xl font-bold">
-            Customer Reviews
-          </h2>
+          <h2 className="mt-2 text-2xl font-bold">Customer Reviews</h2>
         </div>
 
-        {reviewsError ? <p role="status" className="text-sm text-[#737A74]">{reviewsError}</p> : reviewsLoading ? (
-          <p className="text-sm text-[#737A74]">
-            Loading reviews...
+        {reviewsError ? (
+          <p role="status" className="text-sm text-[#737A74]">
+            {reviewsError}
           </p>
+        ) : reviewsLoading ? (
+          <p className="text-sm text-[#737A74]">Loading reviews...</p>
         ) : reviews.length === 0 ? (
           <div className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-10 text-center">
-            <h3 className="text-base font-semibold">
-              No reviews yet
-            </h3>
+            <h3 className="text-base font-semibold">No reviews yet</h3>
 
             <p className="mt-2 text-sm text-[#737A74]">
               Be the first customer to review this product.
@@ -410,7 +433,9 @@ function ProductDetails() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-semibold">
-                      {review.user?.first_name || review.user_name || "TerraLens customer"}
+                      {review.user?.first_name ||
+                        review.user_name ||
+                        "TerraLens customer"}
                     </p>
 
                     {review.verified_purchase && (
@@ -427,9 +452,7 @@ function ProductDetails() {
                       className="text-[#486B57]"
                     />
 
-                    <span className="text-sm font-medium">
-                      {review.rating}
-                    </span>
+                    <span className="text-sm font-medium">{review.rating}</span>
                   </div>
                 </div>
 
@@ -453,15 +476,10 @@ function ProductDetails() {
                 You may also like
               </p>
 
-              <h2 className="mt-2 text-2xl font-bold">
-                Suggested Products
-              </h2>
+              <h2 className="mt-2 text-2xl font-bold">Suggested Products</h2>
             </div>
 
-            <Link
-              to="/shop"
-              className="text-sm font-medium text-[#486B57]"
-            >
+            <Link to="/shop" className="text-sm font-medium text-[#486B57]">
               View all →
             </Link>
           </div>
@@ -471,6 +489,7 @@ function ProductDetails() {
               <ProductCard
                 key={item.id}
                 product={item}
+                imageUrl={suggestedImages[item.id]}
               />
             ))}
           </div>

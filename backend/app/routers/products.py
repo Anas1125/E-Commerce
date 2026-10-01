@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,6 +14,7 @@ from app.services.dependencies import require_admin
 from app.models.product_image import ProductImage
 from app.schemas.product_image import (
     ProductImageCreate,
+    ProductImagePrimaryUpdate,
     ProductImageResponse,
 )
 from app.models.inventory import Inventory
@@ -22,16 +26,38 @@ router = APIRouter(
     tags=["Products"],
 )
 
+PRODUCT_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "products"
+MAX_PRODUCT_IMAGE_SIZE = 10 * 1024 * 1024
+IMAGE_FORMATS = {
+    ".jpg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
+    ".jpeg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
+    ".png": ("image/png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
+    ".webp": ("image/webp", lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP"),
+}
+
+
+def product_with_available_stock(product: Product, db: Session) -> ProductResponse:
+    inventory = db.scalar(
+        select(Inventory).where(Inventory.product_id == product.id)
+    )
+    available = 0 if inventory is None else max(
+        0, inventory.quantity - inventory.reserved_quantity
+    )
+    return ProductResponse.model_validate(product).model_copy(
+        update={"available_stock": available}
+    )
+
 
 @router.get("/", response_model=list[ProductResponse])
 def get_products(
     db: Session = Depends(get_db),
 ):
-    return db.scalars(
+    products = db.scalars(
         select(Product)
         .where(Product.is_active == True)
         .order_by(Product.id.desc())
     ).all()
+    return [product_with_available_stock(product, db) for product in products]
 
 @router.get(
     "/{product_id}/images",
@@ -98,6 +124,135 @@ def add_product_image(
     db.refresh(image)
 
     return image
+
+
+@router.post(
+    "/{product_id}/images/upload",
+    response_model=ProductImageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_product_image(
+    product_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    is_primary: bool = Form(default=False),
+    display_order: int = Form(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    product = db.get(Product, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    extension = Path(file.filename or "").suffix.lower()
+    image_format = IMAGE_FORMATS.get(extension)
+    if image_format is None:
+        raise HTTPException(status_code=400, detail="Use a JPG, JPEG, PNG, or WebP image")
+    content_type, signature_matches = image_format
+    if file.content_type not in (content_type, "application/octet-stream"):
+        raise HTTPException(status_code=400, detail="Image file type does not match its extension")
+
+    contents = await file.read(MAX_PRODUCT_IMAGE_SIZE + 1)
+    if not contents:
+        raise HTTPException(status_code=400, detail="The selected image is empty")
+    if len(contents) > MAX_PRODUCT_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail="Product images must be 10 MB or smaller")
+    if not signature_matches(contents):
+        raise HTTPException(status_code=400, detail="The selected file is not a valid supported image")
+
+    PRODUCT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4().hex}{extension}"
+    destination = PRODUCT_UPLOADS_DIR / filename
+    relative_url = f"/uploads/products/{filename}"
+    image = ProductImage(
+        product_id=product_id,
+        image_url=f"{str(request.base_url).rstrip('/')}{relative_url}",
+        is_primary=is_primary,
+        display_order=display_order,
+    )
+    try:
+        destination.write_bytes(contents)
+        if is_primary:
+            db.query(ProductImage).filter(
+                ProductImage.product_id == product_id,
+                ProductImage.is_primary.is_(True),
+            ).update({ProductImage.is_primary: False}, synchronize_session=False)
+        db.add(image)
+        db.commit()
+        db.refresh(image)
+    except Exception:
+        db.rollback()
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+    return image
+
+
+@router.patch(
+    "/{product_id}/images/{image_id}",
+    response_model=ProductImageResponse,
+)
+def update_product_image(
+    product_id: int,
+    image_id: int,
+    image_data: ProductImagePrimaryUpdate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    image = db.scalar(
+        select(ProductImage).where(
+            ProductImage.id == image_id,
+            ProductImage.product_id == product_id,
+        )
+    )
+    if image is None:
+        raise HTTPException(status_code=404, detail="Product image not found")
+
+    if image_data.is_primary:
+        db.query(ProductImage).filter(
+            ProductImage.product_id == product_id,
+            ProductImage.id != image_id,
+        ).update({ProductImage.is_primary: False}, synchronize_session=False)
+    image.is_primary = image_data.is_primary
+    db.commit()
+    db.refresh(image)
+    return image
+
+
+@router.delete(
+    "/{product_id}/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_product_image(
+    product_id: int,
+    image_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    image = db.scalar(
+        select(ProductImage).where(
+            ProductImage.id == image_id,
+            ProductImage.product_id == product_id,
+        )
+    )
+    if image is None:
+        raise HTTPException(status_code=404, detail="Product image not found")
+
+    was_primary = image.is_primary
+    db.delete(image)
+    db.flush()
+    if was_primary:
+        replacement = db.scalar(
+            select(ProductImage)
+            .where(ProductImage.product_id == product_id)
+            .order_by(ProductImage.display_order, ProductImage.id)
+            .limit(1)
+        )
+        if replacement is not None:
+            replacement.is_primary = True
+    db.commit()
 
 @router.get(
     "/{product_id}/inventory",
@@ -196,7 +351,7 @@ def get_product(
             detail="Product not found",
         )
 
-    return product
+    return product_with_available_stock(product, db)
 
 
 @router.post(
@@ -344,4 +499,3 @@ def delete_product(
     product.is_active = False
 
     db.commit()
-

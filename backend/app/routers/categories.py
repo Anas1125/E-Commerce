@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +17,43 @@ router = APIRouter(
     prefix="/api/categories",
     tags=["Categories"],
 )
+
+CATEGORY_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "categories"
+CATEGORY_IMAGE_FORMATS = {
+    ".jpg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
+    ".jpeg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
+    ".png": ("image/png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
+    ".webp": ("image/webp", lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP"),
+}
+
+
+@router.post("/images/upload", status_code=status.HTTP_201_CREATED)
+async def upload_category_image(
+    request: Request,
+    file: UploadFile = File(...),
+    current_admin: User = Depends(require_admin),
+):
+    extension = Path(file.filename or "").suffix.lower()
+    image_format = CATEGORY_IMAGE_FORMATS.get(extension)
+    if image_format is None:
+        raise HTTPException(status_code=400, detail="Use a JPG, JPEG, PNG, or WebP image")
+    content_type, signature_matches = image_format
+    if file.content_type not in (content_type, "application/octet-stream"):
+        raise HTTPException(status_code=400, detail="Image file type does not match its extension")
+
+    contents = await file.read(10 * 1024 * 1024 + 1)
+    if not contents:
+        raise HTTPException(status_code=400, detail="The selected image is empty")
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Category images must be 10 MB or smaller")
+    if not signature_matches(contents):
+        raise HTTPException(status_code=400, detail="The selected file is not a valid supported image")
+
+    CATEGORY_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4().hex}{extension}"
+    (CATEGORY_UPLOADS_DIR / filename).write_bytes(contents)
+    await file.close()
+    return {"image_url": f"{str(request.base_url).rstrip('/')}/uploads/categories/{filename}"}
 
 
 @router.get("/", response_model=list[CategoryResponse])
@@ -74,6 +114,7 @@ def create_category(
     category = Category(
         name=category_data.name,
         slug=category_data.slug,
+        image_url=category_data.image_url,
     )
 
     db.add(category)
@@ -126,6 +167,8 @@ def update_category(
 
     category.name = category_data.name
     category.slug = category_data.slug
+    if "image_url" in category_data.model_fields_set:
+        category.image_url = category_data.image_url
 
     db.commit()
     db.refresh(category)

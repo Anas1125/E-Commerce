@@ -15,6 +15,7 @@ from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.order_status_history import OrderStatusHistory
 from app.models.product import Product
+from app.models.payment import Payment
 from app.models.user import User
 from app.schemas.order import OrderCreate
 from app.models.coupon import Coupon
@@ -75,6 +76,12 @@ def create_order(
     order_data: OrderCreate,
     db: Session,
 ) -> Order:
+
+    if order_data.payment_method != "cod":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Online payments are not configured. Choose Cash on Delivery.",
+        )
 
     try:
         address = db.scalar(
@@ -292,12 +299,22 @@ def create_order(
             discount_amount=total_discount,
             shipping_fee=shipping_fee,
             total_amount=total_amount,
-            order_status="pending",
+            order_status="confirmed",
             payment_status="pending",
+            payment_method="cod",
         )
 
         db.add(order)
         db.flush()
+
+        db.add(Payment(
+            order_id=order.id,
+            payment_gateway="cod",
+            payment_method="cod",
+            amount=total_amount,
+            currency="INR",
+            status="pending",
+        ))
 
         if coupon is not None:
             coupon.used_count += 1
@@ -341,8 +358,8 @@ def create_order(
 
         status_history = OrderStatusHistory(
             order_id=order.id,
-            status="pending",
-            note="Order created",
+            status="confirmed",
+            note="COD order confirmed; payment is due on delivery",
         )
 
         db.add(status_history)

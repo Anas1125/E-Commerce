@@ -97,6 +97,10 @@ class Order(Base):
         default="pending"
     )
 
+    payment_method: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="cod"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,

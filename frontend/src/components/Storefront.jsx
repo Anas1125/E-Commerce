@@ -1,15 +1,154 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Leaf, PackageCheck, ShieldCheck, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  Leaf,
+  PackageCheck,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 
 export function PageIntro({ eyebrow, title, description, children }) {
-  return <div className="mb-9 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="eyebrow">{eyebrow}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>{description && <p className="mt-3 max-w-2xl text-sm leading-6 text-[#737A74]">{description}</p>}</div>{children}</div>;
+  return (
+    <div className="mb-9 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+          {title}
+        </h1>
+        {description && (
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#737A74]">
+            {description}
+          </p>
+        )}
+      </div>
+      {children}
+    </div>
+  );
 }
 export function SectionTitle({ eyebrow, title, to, linkText = "Explore all" }) {
-  return <div className="mb-6 flex items-end justify-between gap-4"><div><p className="eyebrow">{eyebrow}</p><h2 className="mt-1 text-2xl font-semibold tracking-tight">{title}</h2></div>{to && <Link className="inline-flex items-center gap-2 text-sm font-medium text-[#486B57] hover:gap-3" to={to}>{linkText}<ArrowRight size={16}/></Link>}</div>;
+  return (
+    <div className="mb-6 flex items-end justify-between gap-4">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight">{title}</h2>
+      </div>
+      {to && (
+        <Link
+          className="inline-flex items-center gap-2 text-sm font-medium text-[#486B57] hover:gap-3"
+          to={to}
+        >
+          {linkText}
+          <ArrowRight size={16} />
+        </Link>
+      )}
+    </div>
+  );
 }
-export function EmptyState({ title, text, action, to = "/shop" }) { return <div className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-14 text-center"><h2 className="text-lg font-semibold">{title}</h2><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#737A74]">{text}</p>{action && <Link className="button-primary mt-6 inline-flex" to={to}>{action}</Link>}</div>; }
-export function LoadingState({ label = "Loading your store…" }) { return <div className="py-16 text-center text-sm text-[#737A74]" role="status">{label}</div>; }
-export function ErrorState({ message, retry }) { return <div className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-12 text-center"><p className="text-sm text-[#737A74]">{message}</p>{retry && <button className="mt-4 text-sm font-semibold text-[#486B57]" onClick={retry}>Try again</button>}</div>; }
-export function CategoryCard({ category, image }) { return <Link to={`/categories/${category.slug}`} className="group relative flex min-h-64 items-end overflow-hidden rounded-2xl border border-[#E3E5DF] bg-[#DCE7DE] p-6 transition hover:-translate-y-1">{image ? <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"/> : <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_#fff8,_transparent_60%),linear-gradient(145deg,#e8eee7,#cddbd0)]"/>}<div className="absolute inset-0 bg-gradient-to-t from-[#1f2521a8] via-transparent to-transparent"/><div className="relative flex w-full items-end justify-between text-white"><div><h3 className="text-xl font-semibold">{category.name}</h3><p className="mt-1 text-sm text-white/80">Explore the collection</p></div><span className="rounded-full bg-white/20 p-2 transition group-hover:bg-white group-hover:text-[#486B57]"><ArrowRight size={18}/></span></div></Link>; }
-export function WhyTerraLens() { const blocks = [[Leaf,"Thoughtfully selected","A considered collection chosen for everyday living."],[ShieldCheck,"Secure shopping","Your account and checkout are protected."],[PackageCheck,"Reliable service","Clear updates from order to delivery."],[Sparkles,"Here to help","Support when you need a hand."]]; return <section className="border-y border-[#E3E5DF] bg-white py-16"><div className="mx-auto max-w-7xl px-6"><SectionTitle eyebrow="The TerraLens way" title="Why TerraLens?"/><div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-4">{blocks.map(([Icon,title,copy])=><div key={title}><span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#DCE7DE] text-[#486B57]"><Icon size={20}/></span><h3 className="mt-4 font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-[#737A74]">{copy}</p></div>)}</div></div></section>; }
-export function Price({ value, className = "" }) { return <span className={className}>₹{Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span>; }
+export function EmptyState({ title, text, action, to = "/shop" }) {
+  return (
+    <div className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-14 text-center">
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#737A74]">
+        {text}
+      </p>
+      {action && (
+        <Link className="button-primary mt-6 inline-flex" to={to}>
+          {action}
+        </Link>
+      )}
+    </div>
+  );
+}
+export function LoadingState({ label = "Loading your store…" }) {
+  return (
+    <div className="py-16 text-center text-sm text-[#737A74]" role="status">
+      {label}
+    </div>
+  );
+}
+export function ErrorState({ message, retry }) {
+  return (
+    <div className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-12 text-center">
+      <p className="text-sm text-[#737A74]">{message}</p>
+      {retry && (
+        <button
+          className="mt-4 text-sm font-semibold text-[#486B57]"
+          onClick={retry}
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+export function CategoryCard({ category, image }) {
+  const categoryImage = image || category.image_url;
+  return (
+    <Link
+      to={`/categories/${category.slug}`}
+      className="group relative flex min-h-64 items-end overflow-hidden rounded-2xl border border-[#E3E5DF] bg-[#DCE7DE] p-6 transition hover:-translate-y-1"
+    >
+      {categoryImage ? (
+        <img
+          src={categoryImage}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-105"
+        />
+      ) : (
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_#fff8,_transparent_60%),linear-gradient(145deg,#e8eee7,#cddbd0)]" />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-[#1f2521a8] via-transparent to-transparent" />
+      <div className="relative flex w-full items-end justify-between text-white">
+        <div>
+          <h3 className="text-xl font-semibold">{category.name}</h3>
+          <p className="mt-1 text-sm text-white/80">Explore the collection</p>
+        </div>
+        <span className="rounded-full bg-white/20 p-2 transition group-hover:bg-white group-hover:text-[#486B57]">
+          <ArrowRight size={18} />
+        </span>
+      </div>
+    </Link>
+  );
+}
+export function WhyTerraLens() {
+  const blocks = [
+    [
+      Leaf,
+      "Thoughtfully selected",
+      "A considered collection chosen for everyday living.",
+    ],
+    [
+      ShieldCheck,
+      "Secure shopping",
+      "Your account and checkout are protected.",
+    ],
+    [PackageCheck, "Reliable service", "Clear updates from order to delivery."],
+    [Sparkles, "Here to help", "Support when you need a hand."],
+  ];
+  return (
+    <section className="border-y border-[#E3E5DF] bg-white py-16">
+      <div className="mx-auto max-w-7xl px-6">
+        <SectionTitle eyebrow="The TerraLens way" title="Why TerraLens?" />
+        <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-4">
+          {blocks.map(([Icon, title, copy]) => (
+            <div key={title}>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#DCE7DE] text-[#486B57]">
+                <Icon size={20} />
+              </span>
+              <h3 className="mt-4 font-semibold">{title}</h3>
+              <p className="mt-2 text-sm leading-6 text-[#737A74]">{copy}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+export function Price({ value, className = "" }) {
+  return (
+    <span className={className}>
+      ₹
+      {Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+    </span>
+  );
+}

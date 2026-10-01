@@ -1,23 +1,199 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import api from "../services/api";
 import ProductCard from "../components/ProductCard";
-import { CategoryCard, EmptyState, LoadingState, SectionTitle, WhyTerraLens } from "../components/Storefront";
+import {
+  CategoryCard,
+  EmptyState,
+  LoadingState,
+  SectionTitle,
+  WhyTerraLens,
+} from "../components/Storefront";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 // CMS-ready presentation fallback. Replace this object with homepage CMS response when the API is available.
-const heroContent = { eyebrow: "Considered living", title: "Thoughtfully selected products for everyday living.", subtitle: "Discover quality products, special offers, and everyday essentials selected by TerraLens.", primaryText: "Shop Now", primaryLink: "/shop", secondaryText: "Explore Deals", secondaryLink: "/deals", image: null };
+const heroContent = {
+  eyebrow: "Considered living",
+  title: "Thoughtfully selected products for everyday living.",
+  subtitle:
+    "Discover quality products, special offers, and everyday essentials selected by TerraLens.",
+  primaryText: "Shop Now",
+  primaryLink: "/shop",
+  secondaryText: "Explore Deals",
+  secondaryLink: "/deals",
+  image: null,
+};
 function Home() {
-  const [products,setProducts]=useState([]); const [categories,setCategories]=useState([]); const [discounts,setDiscounts]=useState([]); const [images,setImages]=useState({}); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
-  useEffect(()=>{let alive=true; Promise.all([api.get("/products/"),api.get("/categories/"),api.get("/discounts/")]).then(async ([p,c,d])=>{if(!alive)return; setProducts(p.data);setCategories(c.data);setDiscounts(d.data); const top=p.data.slice(0,8);const imageResults=await Promise.all(top.map(async x=>{try{const r=await api.get(`/products/${x.id}/images`);return [x.id,r.data.find(i=>i.is_primary)?.image_url||r.data[0]?.image_url];}catch{return [x.id,null]}}));if(alive)setImages(Object.fromEntries(imageResults.filter(([,v])=>v)));}).catch(()=>alive&&setError("We couldn’t load the store right now.")).finally(()=>alive&&setLoading(false));return()=>{alive=false}},[]);
-  const activeDeals=discounts.filter(d=>d.is_active&&new Date(d.start_date)<=new Date()&&new Date(d.end_date)>=new Date());
-  return <div>
-    <section className="mx-auto max-w-7xl px-6 py-8 md:py-12"><div className="relative min-h-[430px] overflow-hidden rounded-[1.75rem] bg-[#DCE7DE] md:min-h-[490px]">{heroContent.image&&<img src={heroContent.image} alt="" className="absolute inset-0 h-full w-full object-cover"/>}<div className="absolute inset-0 bg-gradient-to-r from-[#e7ece4]/95 via-[#e7ece4]/85 to-[#e7ece4]/25"/><div className="relative flex min-h-[430px] max-w-2xl flex-col justify-center px-7 py-12 md:min-h-[490px] md:px-14"><p className="eyebrow">{heroContent.eyebrow}</p><h1 className="mt-4 max-w-xl text-4xl font-semibold leading-[1.12] tracking-tight sm:text-5xl">{heroContent.title}</h1><p className="mt-5 max-w-lg text-base leading-7 text-[#59645c]">{heroContent.subtitle}</p><div className="mt-8 flex flex-wrap gap-3"><Link className="button-primary inline-flex" to={heroContent.primaryLink}>{heroContent.primaryText}<ArrowRight className="ml-2" size={16}/></Link><Link className="button-secondary" to={heroContent.secondaryLink}>{heroContent.secondaryText}</Link></div></div></div></section>
-    <section className="mx-auto max-w-7xl px-6 py-12 md:py-16"><SectionTitle eyebrow="Browse the edit" title="Shop by Category" to="/categories"/><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{categories.slice(0,4).map(category=><CategoryCard key={category.id} category={category}/>)}</div>{!categories.length&&!loading&&<EmptyState title="Categories are coming soon" text="Browse the full TerraLens collection in the meantime." action="Shop all products"/>}</section>
-    <section className="mx-auto max-w-7xl px-6 py-7"><div className="relative overflow-hidden rounded-3xl bg-[#344d3e] px-7 py-10 text-white md:px-12 md:py-12"><div className="absolute -right-12 -top-28 h-80 w-80 rounded-full border border-white/10"/><div className="relative flex flex-col gap-6 md:flex-row md:items-end md:justify-between"><div><p className="text-xs font-bold uppercase tracking-[.2em] text-[#c6d5c8]">Special offers · {activeDeals.length} active</p><h2 className="mt-3 text-3xl font-semibold tracking-tight">Better products. Better prices.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/75">Explore limited-time offers from TerraLens, selected for a little extra value.</p></div><Link to="/deals" className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#344d3e] hover:bg-[#edf1ec]">Shop deals<ArrowRight size={16}/></Link></div></div></section>
-    <section className="mx-auto max-w-7xl px-6 py-16"><SectionTitle eyebrow="Freshly added" title="New Arrivals" to="/shop" linkText="View the collection"/>{loading?<LoadingState/>:error?<p className="text-sm text-[#737A74]">{error}</p>:products.length?<div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">{products.slice(0,8).map(p=><ProductCard key={p.id} product={p} imageUrl={images[p.id]}/>)}</div>:<EmptyState title="No products yet" text="Our collection will appear here as soon as products are available." action="Explore the shop"/>}</section>
-    <WhyTerraLens/>
-    <section className="mx-auto max-w-7xl px-6 py-16"><div className="rounded-3xl border border-[#E3E5DF] bg-[#E9ECE5] px-7 py-10 md:flex md:items-center md:justify-between md:px-12"><div><p className="eyebrow">Your next favourite</p><h2 className="mt-2 text-2xl font-semibold">Find something worth bringing home.</h2></div><Link className="button-primary mt-6 inline-flex md:mt-0" to="/shop">Explore the Collection<ArrowRight className="ml-2" size={16}/></Link></div></section>
-  </div>
+  const { heroImageUrl } = useContext(SiteBrandingContext);
+  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [discounts, setDiscounts] = useState([]);
+  const [images, setImages] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      api.get("/products/"),
+      api.get("/categories/"),
+      api.get("/discounts/"),
+    ])
+      .then(async ([p, c, d]) => {
+        if (!alive) return;
+        setProducts(p.data);
+        setCategories(c.data);
+        setDiscounts(d.data);
+        const top = p.data.slice(0, 8);
+        const imageResults = await Promise.all(
+          top.map(async (x) => {
+            try {
+              const r = await api.get(`/products/${x.id}/images`);
+              return [
+                x.id,
+                r.data.find((i) => i.is_primary)?.image_url ||
+                  r.data[0]?.image_url,
+              ];
+            } catch {
+              return [x.id, null];
+            }
+          }),
+        );
+        if (alive)
+          setImages(Object.fromEntries(imageResults.filter(([, v]) => v)));
+      })
+      .catch(() => alive && setError("We couldn’t load the store right now."))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const activeDeals = discounts.filter(
+    (d) =>
+      d.is_active &&
+      new Date(d.start_date) <= new Date() &&
+      new Date(d.end_date) >= new Date(),
+  );
+  return (
+    <div>
+      <section className="mx-auto max-w-7xl px-4 py-7 sm:px-6 md:py-11">
+        <div
+          className="relative flex min-h-[440px] overflow-hidden rounded-[1.75rem] bg-[#DCE7DE] bg-cover bg-center md:min-h-[510px]"
+          style={{
+            backgroundImage: heroImageUrl
+              ? `linear-gradient(90deg, rgba(231,236,228,.68) 0%, rgba(231,236,228,.36) 42%, rgba(231,236,228,.08) 76%, rgba(231,236,228,0) 100%), url("${heroImageUrl}")`
+              : "linear-gradient(110deg, #e7ece4 0%, #e7ece4 55%, #dce7de 100%)",
+          }}
+        >
+          <div className="relative flex w-full max-w-2xl flex-col justify-center px-6 py-12 sm:px-9 md:px-14">
+            <p className="eyebrow">{heroContent.eyebrow}</p>
+            <h1 className="mt-4 max-w-xl text-4xl font-semibold leading-[1.12] tracking-tight sm:text-5xl">
+              {heroContent.title}
+            </h1>
+            <p className="mt-5 max-w-lg text-base leading-7 text-[#59645c]">
+              {heroContent.subtitle}
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                className="button-primary inline-flex"
+                to={heroContent.primaryLink}
+              >
+                {heroContent.primaryText}
+                <ArrowRight className="ml-2" size={16} />
+              </Link>
+              <Link className="button-secondary" to={heroContent.secondaryLink}>
+                {heroContent.secondaryText}
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="mx-auto max-w-7xl px-6 py-12 md:py-16">
+        <SectionTitle
+          eyebrow="Browse the edit"
+          title="Shop by Category"
+          to="/categories"
+        />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {categories.slice(0, 4).map((category) => (
+            <CategoryCard key={category.id} category={category} />
+          ))}
+        </div>
+        {!categories.length && !loading && (
+          <EmptyState
+            title="Categories are coming soon"
+            text="Browse the full TerraLens collection in the meantime."
+            action="Shop all products"
+          />
+        )}
+      </section>
+      <section className="mx-auto max-w-7xl px-6 py-7">
+        <div className="relative overflow-hidden rounded-3xl bg-[#344d3e] px-7 py-10 text-white md:px-12 md:py-12">
+          <div className="absolute -right-12 -top-28 h-80 w-80 rounded-full border border-white/10" />
+          <div className="relative flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.2em] text-[#c6d5c8]">
+                Special offers · {activeDeals.length} active
+              </p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight">
+                Better products. Better prices.
+              </h2>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-white/75">
+                Explore limited-time offers from TerraLens, selected for a
+                little extra value.
+              </p>
+            </div>
+            <Link
+              to="/deals"
+              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-lightgreen px-5 py-3 text-sm font-semibold text-[#344d3e] hover:bg-[#17620400]"
+            >
+              Shop deals
+              <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </section>
+      <section className="mx-auto max-w-7xl px-6 py-16">
+        <SectionTitle
+          eyebrow="Freshly added"
+          title="New Arrivals"
+          to="/shop"
+          linkText="View the collection"
+        />
+        {loading ? (
+          <LoadingState />
+        ) : error ? (
+          <p className="text-sm text-[#737A74]">{error}</p>
+        ) : products.length ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {products.slice(0, 8).map((p) => (
+              <ProductCard key={p.id} product={p} imageUrl={images[p.id]} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="No products yet"
+            text="Our collection will appear here as soon as products are available."
+            action="Explore the shop"
+          />
+        )}
+      </section>
+      <WhyTerraLens />
+      <section className="mx-auto max-w-7xl px-6 py-16">
+        <div className="rounded-3xl border border-[#E3E5DF] bg-[#E9ECE5] px-7 py-10 md:flex md:items-center md:justify-between md:px-12">
+          <div>
+            <p className="eyebrow">Your next favourite</p>
+            <h2 className="mt-2 text-2xl font-semibold">
+              Find something worth bringing home.
+            </h2>
+          </div>
+          <Link className="button-primary mt-6 inline-flex md:mt-0" to="/shop">
+            Explore the Collection
+            <ArrowRight className="ml-2" size={16} />
+          </Link>
+        </div>
+      </section>
+    </div>
+  );
 }
 export default Home;

@@ -16,6 +16,7 @@ from app.models.coupon import Coupon
 from app.models.coupon_usage import CouponUsage
 from app.models.refund import Refund
 from app.models.order_status_history import OrderStatusHistory
+from app.models.site_settings import SiteSettings
 
 
 
@@ -37,5 +38,6 @@ __all__ = [
     "Coupon",
     "CouponUsage",
     "Refund",
-    "OrderStatusHistory"
+    "OrderStatusHistory",
+    "SiteSettings",
 ]

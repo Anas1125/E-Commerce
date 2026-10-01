@@ -4,5 +4,106 @@ import { useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import ProductCard from "../components/ProductCard";
 import { EmptyState, LoadingState, PageIntro } from "../components/Storefront";
-function Search(){const[params,setParams]=useSearchParams();const query=params.get("q")||"";const[term,setTerm]=useState("");const[products,setProducts]=useState([]);const[images,setImages]=useState({});const[loading,setLoading]=useState(true);const[error,setError]=useState("");useEffect(()=>{let alive=true;api.get("/products/").then(async r=>{if(!alive)return;setProducts(r.data);const a=await Promise.all(r.data.map(async p=>{try{const x=await api.get(`/products/${p.id}/images`);return[p.id,x.data.find(i=>i.is_primary)?.image_url||x.data[0]?.image_url]}catch{return[p.id,null]}}));if(alive)setImages(Object.fromEntries(a.filter(([,v])=>v))) }).catch(()=>alive&&setError("Couldn’t load search results.")).finally(()=>alive&&setLoading(false));return()=>{alive=false}},[]);const results=useMemo(()=>{const q=query.trim().toLowerCase();if(!q)return[];return products.filter(p=>`${p.name} ${p.brand||""} ${p.description||""}`.toLowerCase().includes(q))},[products,query]);const submit=e=>{e.preventDefault();setParams(term.trim()?{q:term.trim()}:{} )};return <div className="mx-auto max-w-7xl px-6 py-12"><PageIntro eyebrow="Find your next favourite" title="Search" description="Search product names, brands, and available descriptions."/><form onSubmit={submit} className="mb-8 flex max-w-2xl gap-2 rounded-2xl border border-[#E3E5DF] bg-white p-2"><SearchIcon className="ml-3 mt-3 shrink-0 text-[#737A74]" size={19}/><input aria-label="Search products" className="min-w-0 flex-1 border-0 bg-transparent px-2 py-3 text-sm outline-none" placeholder="Try a product or brand" value={term} onChange={e=>setTerm(e.target.value)}/><button className="button-primary">Search</button></form>{loading?<LoadingState/>:error?<EmptyState title="Search unavailable" text={error}/>:!query?<EmptyState title="What are you looking for?" text="Enter a product name or brand to explore the collection." action="Browse the shop"/>:results.length?<><p className="mb-5 text-sm text-[#737A74]">{results.length} results for “{query}”</p><div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">{results.map(p=><ProductCard key={p.id} product={p} imageUrl={images[p.id]}/>)}</div></>:<EmptyState title="No matches found" text={`We couldn’t find products matching “${query}”. Try another name or brand.`} action="Browse the shop"/>}</div>}
+function Search() {
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") || "";
+  const [term, setTerm] = useState("");
+  const [products, setProducts] = useState([]);
+  const [images, setImages] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    api
+      .get("/products/")
+      .then(async (r) => {
+        if (!alive) return;
+        setProducts(r.data);
+        const a = await Promise.all(
+          r.data.map(async (p) => {
+            try {
+              const x = await api.get(`/products/${p.id}/images`);
+              return [
+                p.id,
+                x.data.find((i) => i.is_primary)?.image_url ||
+                  x.data[0]?.image_url,
+              ];
+            } catch {
+              return [p.id, null];
+            }
+          }),
+        );
+        if (alive) setImages(Object.fromEntries(a.filter(([, v]) => v)));
+      })
+      .catch(() => alive && setError("Couldn’t load search results."))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return products.filter((p) =>
+      `${p.name} ${p.brand || ""} ${p.description || ""}`
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [products, query]);
+  const submit = (e) => {
+    e.preventDefault();
+    setParams(term.trim() ? { q: term.trim() } : {});
+  };
+  return (
+    <div className="mx-auto max-w-7xl px-6 py-12">
+      <PageIntro
+        eyebrow="Find your next favourite"
+        title="Search"
+        description="Search product names, brands, and available descriptions."
+      />
+      <form
+        onSubmit={submit}
+        className="mb-8 flex max-w-2xl gap-2 rounded-2xl border border-[#E3E5DF] bg-white p-2"
+      >
+        <SearchIcon className="ml-3 mt-3 shrink-0 text-[#737A74]" size={19} />
+        <input
+          aria-label="Search products"
+          className="min-w-0 flex-1 border-0 bg-transparent px-2 py-3 text-sm outline-none"
+          placeholder="Try a product or brand"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+        />
+        <button className="button-primary">Search</button>
+      </form>
+      {loading ? (
+        <LoadingState />
+      ) : error ? (
+        <EmptyState title="Search unavailable" text={error} />
+      ) : !query ? (
+        <EmptyState
+          title="What are you looking for?"
+          text="Enter a product name or brand to explore the collection."
+          action="Browse the shop"
+        />
+      ) : results.length ? (
+        <>
+          <p className="mb-5 text-sm text-[#737A74]">
+            {results.length} results for “{query}”
+          </p>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {results.map((p) => (
+              <ProductCard key={p.id} product={p} imageUrl={images[p.id]} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <EmptyState
+          title="No matches found"
+          text={`We couldn’t find products matching “${query}”. Try another name or brand.`}
+          action="Browse the shop"
+        />
+      )}
+    </div>
+  );
+}
 export default Search;

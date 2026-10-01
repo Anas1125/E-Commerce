@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.routers.auth import router as auth_router
 from app.routers.categories import router as categories_router
@@ -17,8 +20,12 @@ from app.routers.admin_orders import router as admin_orders_router
 from app.routers.admin_customers import router as admin_customers_router
 from app.routers.admin_refunds import router as admin_refunds_router
 from app.routers.admin_inventory import router as admin_inventory_router
+from app.routers.site_settings import router as site_settings_router
 
 app = FastAPI(title="TerraLens E-Commerce API")
+UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -45,6 +52,7 @@ app.include_router(admin_orders_router)
 app.include_router(admin_customers_router)
 app.include_router(admin_refunds_router)
 app.include_router(admin_inventory_router)
+app.include_router(site_settings_router)
 
 @app.get("/")
 def root():

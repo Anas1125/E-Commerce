@@ -22,6 +22,7 @@ class ProductResponse(BaseModel):
     price: Decimal
     category_id: int
     stock: int
+    available_stock: int = 0
     rating: Decimal
     is_active: bool
 

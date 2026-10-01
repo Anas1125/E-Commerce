@@ -7,6 +7,10 @@ class ProductImageCreate(BaseModel):
     display_order: int = Field(default=0, ge=0)
 
 
+class ProductImagePrimaryUpdate(BaseModel):
+    is_primary: bool
+
+
 class ProductImageResponse(BaseModel):
     id: int
     product_id: int

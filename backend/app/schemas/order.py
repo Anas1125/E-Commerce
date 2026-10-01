@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class OrderCreate(BaseModel):
     shipping_address_id: int
     coupon_code: str | None = Field(default=None, max_length=50)
+    payment_method: str = Field(default="cod", pattern="^(cod|upi|card)$")
 
 
 class OrderItemResponse(BaseModel):
@@ -36,6 +37,7 @@ class OrderResponse(BaseModel):
     total_amount: Decimal
     order_status: str
     payment_status: str
+    payment_method: str | None = None
     created_at: datetime
     updated_at: datetime
     items: list[OrderItemResponse]
@@ -77,6 +79,7 @@ class AdminOrderResponse(BaseModel):
 
     order_status: str
     payment_status: str
+    payment_method: str | None = None
 
     created_at: datetime
     updated_at: datetime
@@ -108,6 +111,7 @@ class AdminOrderListResponse(BaseModel):
 
     order_status: str
     payment_status: str
+    payment_method: str | None = None
 
     created_at: datetime
     updated_at: datetime
