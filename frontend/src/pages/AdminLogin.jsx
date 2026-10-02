@@ -34,7 +34,7 @@ function AdminLogin() {
         return;
       }
 
-      login(data.access_token, me.data);
+      login(data.access_token, me.data, "admin");
       navigate(location.state?.from?.pathname || "/admin", { replace: true });
     } catch (requestError) {
       setError(requestError.response?.data?.detail || "Unable to sign in.");

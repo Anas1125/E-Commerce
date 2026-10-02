@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.models.address import Address
@@ -120,10 +121,7 @@ def update_address(
     return address
 
 
-@router.delete(
-    "/{address_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
+@router.delete("/{address_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_address(
     address_id: int,
     current_user: User = Depends(get_current_user),
@@ -142,5 +140,20 @@ def delete_address(
             detail="Address not found",
         )
 
-    db.delete(address)
-    db.commit()
+    try:
+        db.delete(address)
+        db.commit()
+
+    except IntegrityError:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This address is linked to an existing order "
+                "and cannot be deleted. You can keep it saved "
+                "for your order history."
+            ),
+        )
+
+    return None

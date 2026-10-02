@@ -262,7 +262,7 @@ function AdminCategories() {
             <div className="flex flex-wrap gap-2">
               <button
                 disabled={busy}
-                className="button-primary inline-flex items-center gap-2"
+                className="button-primary inline-flex items-center gap-2 cursor-pointer"
               >
                 {selectedFile && <Upload size={15} />}
                 {busy

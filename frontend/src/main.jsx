@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 
 import "./index.css";
 import App from "./App";
@@ -8,10 +9,12 @@ import { SiteBrandingProvider } from "./context/site-branding";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <AuthProvider>
-      <SiteBrandingProvider>
-        <App />
-      </SiteBrandingProvider>
-    </AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <SiteBrandingProvider>
+          <App />
+        </SiteBrandingProvider>
+      </AuthProvider>
+    </BrowserRouter>
   </StrictMode>,
 );

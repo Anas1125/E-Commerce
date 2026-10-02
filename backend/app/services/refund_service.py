@@ -38,6 +38,12 @@ def request_refund(
             detail="Only paid orders can be refunded",
         )
 
+    if order.order_status != "delivered":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only delivered orders can be refunded",
+        )
+
     if order.order_status == "cancelled":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

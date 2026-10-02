@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.site_settings import SiteSettings
 from app.models.user import User
-from app.schemas.site_settings import SiteSettingsResponse
+from app.schemas.site_settings import (
+    SiteNameUpdate,
+    SiteSettingsResponse,
+)
 from app.services.dependencies import require_admin
 
 
@@ -42,6 +45,28 @@ def get_or_create_settings(db: Session) -> SiteSettings:
 @router.get("/", response_model=SiteSettingsResponse)
 def read_site_settings(db: Session = Depends(get_db)):
     return get_or_create_settings(db)
+
+@router.patch("/name", response_model=SiteSettingsResponse)
+def update_site_name(
+    site_data: SiteNameUpdate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    site_name = site_data.site_name.strip()
+
+    if not site_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Website name cannot be empty",
+        )
+
+    settings = get_or_create_settings(db)
+    settings.site_name = site_name
+
+    db.commit()
+    db.refresh(settings)
+
+    return settings
 
 
 @router.post("/{asset_name}/upload", response_model=SiteSettingsResponse)

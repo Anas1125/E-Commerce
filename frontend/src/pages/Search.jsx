@@ -1,109 +1,476 @@
-import { useEffect, useMemo, useState } from "react";
-import { Search as SearchIcon } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
-import api from "../services/api";
 import ProductCard from "../components/ProductCard";
-import { EmptyState, LoadingState, PageIntro } from "../components/Storefront";
+
+import {
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  ArrowLeft,
+  Search as SearchIcon,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
+
+import {
+  Link,
+  useSearchParams,
+} from "react-router-dom";
+
+import { smartSearch } from "../utils/search";
+
+import api from "../services/api";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
+
+import {
+  EmptyState,
+  LoadingState,
+} from "../components/Storefront";
+
 function Search() {
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
+
   const [params, setParams] = useSearchParams();
+
   const query = params.get("q") || "";
-  const [term, setTerm] = useState("");
+
+  const [sort, setSort] = useState("relevance");
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [images, setImages] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  /* =========================================================
+     LOAD PRODUCTS + CATEGORIES
+  ========================================================= */
+
   useEffect(() => {
     let alive = true;
-    api
-      .get("/products/")
-      .then(async (r) => {
+
+    const loadProducts = async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const [productResponse, categoryResponse] =
+          await Promise.all([
+            api.get("/products/"),
+            api.get("/categories/"),
+          ]);
+
         if (!alive) return;
-        setProducts(r.data);
-        const a = await Promise.all(
-          r.data.map(async (p) => {
+
+        const productData = productResponse.data || [];
+        const categoryData = categoryResponse.data || [];
+
+        setProducts(productData);
+        setCategories(categoryData);
+
+        const imageResults = await Promise.all(
+          productData.map(async (product) => {
             try {
-              const x = await api.get(`/products/${p.id}/images`);
+              const response = await api.get(
+                `/products/${product.id}/images`,
+              );
+
+              const image =
+                response.data.find(
+                  (item) => item.is_primary,
+                ) || response.data[0];
+
               return [
-                p.id,
-                x.data.find((i) => i.is_primary)?.image_url ||
-                  x.data[0]?.image_url,
+                product.id,
+                image?.image_url || null,
               ];
             } catch {
-              return [p.id, null];
+              return [product.id, null];
             }
           }),
         );
-        if (alive) setImages(Object.fromEntries(a.filter(([, v]) => v)));
-      })
-      .catch(() => alive && setError("Couldn’t load search results."))
-      .finally(() => alive && setLoading(false));
+
+        if (alive) {
+          setImages(
+            Object.fromEntries(
+              imageResults.filter(([, url]) => url),
+            ),
+          );
+        }
+      } catch {
+        if (alive) {
+          setError(
+            "Couldn't load search results.",
+          );
+        }
+      } finally {
+        if (alive) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadProducts();
+
     return () => {
       alive = false;
     };
   }, []);
+
+  /* =========================================================
+     CATEGORY MAP
+  ========================================================= */
+
+  const categoryMap = useMemo(
+    () =>
+      Object.fromEntries(
+        categories.map((item) => [
+          String(item.id),
+          {
+            name: item.name || "",
+            slug: item.slug || "",
+            description: item.description || "",
+          },
+        ]),
+      ),
+    [categories],
+  );
+
+  /* =========================================================
+     SEARCH RESULTS
+  ========================================================= */
+
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
+
     if (!q) return [];
-    return products.filter((p) =>
-      `${p.name} ${p.brand || ""} ${p.description || ""}`
-        .toLowerCase()
-        .includes(q),
+
+    const result = smartSearch(
+      products,
+      q,
+      (product) => {
+        const productCategory =
+          categoryMap[String(product.category_id)] || {};
+
+        return [
+          // Product information
+          product.name,
+          product.brand?.name || product.brand,
+          product.description,
+
+          // Category information
+          productCategory.name,
+          productCategory.slug,
+          productCategory.description,
+
+          // Existing category fields, if available
+          product.category?.name,
+          product.category?.slug,
+          product.category_name,
+        ];
+      },
+      25,
     );
-  }, [products, query]);
-  const submit = (e) => {
-    e.preventDefault();
-    setParams(term.trim() ? { q: term.trim() } : {});
+
+    /* =======================================================
+       SORT
+    ======================================================= */
+
+    if (sort === "price-low") {
+      return [...result].sort(
+        (a, b) =>
+          Number(a.price || 0) -
+          Number(b.price || 0),
+      );
+    }
+
+    if (sort === "price-high") {
+      return [...result].sort(
+        (a, b) =>
+          Number(b.price || 0) -
+          Number(a.price || 0),
+      );
+    }
+
+    if (sort === "name") {
+      return [...result].sort((a, b) =>
+        String(a.name || "").localeCompare(
+          String(b.name || ""),
+        ),
+      );
+    }
+
+    /* Relevance is already handled by smartSearch */
+    return result;
+  }, [products, categoryMap, query, sort]);
+
+  /* =========================================================
+     SEARCH SUBMIT
+  ========================================================= */
+
+  const submit = (event) => {
+    event.preventDefault();
+
+    const value = query.trim();
+
+    if (value) {
+      setParams({ q: value });
+    } else {
+      setParams({});
+    }
   };
+
+  const clearSearch = () => {
+    setParams({});
+  };
+
+  /* =========================================================
+     RENDER
+  ========================================================= */
+
   return (
-    <div className="mx-auto max-w-7xl px-6 py-12">
-      <PageIntro
-        eyebrow="Find your next favourite"
+    <main className="min-h-screen bg-[#F1F3F6]">
+      <SEO
         title="Search"
-        description="Search product names, brands, and available descriptions."
+        description={`Search products by name, brand, category, or description on ${siteName}.`}
+        noIndex
       />
-      <form
-        onSubmit={submit}
-        className="mb-8 flex max-w-2xl gap-2 rounded-2xl border border-[#E3E5DF] bg-white p-2"
-      >
-        <SearchIcon className="ml-3 mt-3 shrink-0 text-[#737A74]" size={19} />
-        <input
-          aria-label="Search products"
-          className="min-w-0 flex-1 border-0 bg-transparent px-2 py-3 text-sm outline-none"
-          placeholder="Try a product or brand"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-        />
-        <button className="button-primary">Search</button>
-      </form>
-      {loading ? (
-        <LoadingState />
-      ) : error ? (
-        <EmptyState title="Search unavailable" text={error} />
-      ) : !query ? (
-        <EmptyState
-          title="What are you looking for?"
-          text="Enter a product name or brand to explore the collection."
-          action="Browse the shop"
-        />
-      ) : results.length ? (
-        <>
-          <p className="mb-5 text-sm text-[#737A74]">
-            {results.length} results for “{query}”
-          </p>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {results.map((p) => (
-              <ProductCard key={p.id} product={p} imageUrl={images[p.id]} />
-            ))}
+      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+
+        {/* ===================================================
+            SEARCH HEADER
+        =================================================== */}
+
+        <section className="rounded-lg bg-white px-5 py-6 sm:px-7">
+          <div className="flex flex-col gap-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#2874F0]">
+              {siteName} search
+            </p>
+
+            <h1 className="text-3xl font-bold tracking-tight text-[#212121] sm:text-4xl">
+              Search products
+            </h1>
+
+            <p className="text-sm leading-6 text-[#878787]">
+              Find products by name, brand, category,
+              or description.
+            </p>
           </div>
-        </>
-      ) : (
-        <EmptyState
-          title="No matches found"
-          text={`We couldn’t find products matching “${query}”. Try another name or brand.`}
-          action="Browse the shop"
-        />
-      )}
-    </div>
+
+          {/* Search bar */}
+
+          <form
+            onSubmit={submit}
+            className="mt-6 flex max-w-4xl gap-2"
+          >
+            <div className="relative flex-1">
+              <SearchIcon
+                size={19}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-[#878787]"
+              />
+
+              <input
+                aria-label="Search products"
+                value={query}
+                onChange={(event) => {
+                  const value = event.target.value;
+
+                  if (value.trim()) {
+                    setParams({ q: value });
+                  } else {
+                    setParams({});
+                  }
+                }}
+                placeholder="Search products, brands and more"
+                className="h-12 w-full rounded-md border border-[#D8DDE3] bg-[#FAFAFA] pl-11 pr-11 text-sm text-[#212121] outline-none transition focus:border-[#2874F0] focus:bg-white focus:ring-1 focus:ring-[#2874F0]/20"
+              />
+
+              {query && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-[#878787] hover:bg-[#EDEFF2] hover:text-[#212121]"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+
+        {/* ===================================================
+            CONTENT
+        =================================================== */}
+
+        <section className="mt-5">
+          {loading ? (
+            <div className="rounded-lg bg-white px-6 py-12">
+              <LoadingState label="Searching products..." />
+            </div>
+          ) : error ? (
+            <div className="rounded-lg bg-white px-6 py-12">
+              <EmptyState
+                title="Search unavailable"
+                text={error}
+              />
+            </div>
+          ) : !query ? (
+            /* No query */
+
+            <div className="rounded-lg bg-white px-6 py-16 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EAF2FF] text-[#2874F0]">
+                <SearchIcon size={24} />
+              </div>
+
+              <h2 className="mt-5 text-xl font-bold text-[#212121]">
+                What are you looking for?
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#878787]">
+                Search for a product, brand, category,
+                or anything you're interested in.
+              </p>
+
+              <Link
+                to="/shop"
+                className="mt-6 inline-flex items-center gap-2 rounded-md bg-[#2874F0] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#1F65D6]"
+              >
+                Browse the shop
+
+                <ArrowLeft
+                  size={15}
+                  className="rotate-180"
+                />
+              </Link>
+            </div>
+          ) : results.length ? (
+            <>
+              {/* =================================================
+                  RESULTS
+              ================================================= */}
+
+              {/* Results toolbar */}
+
+              <div className="rounded-lg bg-white px-5 py-4 sm:px-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-[#212121]">
+                      Search results
+                    </h2>
+
+                    <p className="mt-1 text-sm text-[#878787]">
+                      <span className="font-semibold text-[#212121]">
+                        {results.length}
+                      </span>{" "}
+                      {results.length === 1
+                        ? "product"
+                        : "products"}{" "}
+                      found for{" "}
+                      <span className="font-semibold text-[#212121]">
+                        “{query}”
+                      </span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal
+                      size={16}
+                      className="text-[#878787]"
+                    />
+
+                    <span className="hidden text-xs text-[#878787] sm:block">
+                      Sort by
+                    </span>
+
+                    <select
+                      value={sort}
+                      onChange={(event) =>
+                        setSort(event.target.value)
+                      }
+                      className="h-10 rounded-md border border-[#E0E0E0] bg-white px-3 text-sm font-medium text-[#212121] outline-none focus:border-[#2874F0]"
+                    >
+                      <option value="relevance">
+                        Relevance
+                      </option>
+
+                      <option value="name">
+                        Name A–Z
+                      </option>
+
+                      <option value="price-low">
+                        Price: Low to High
+                      </option>
+
+                      <option value="price-high">
+                        Price: High to Low
+                      </option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Product grid */}
+
+              <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+                {results.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    imageUrl={images[product.id]}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            /* =================================================
+               NO RESULTS
+            ================================================= */
+
+            <div className="rounded-lg bg-white px-6 py-16 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EAF2FF] text-[#2874F0]">
+                <SearchIcon size={24} />
+              </div>
+
+              <h2 className="mt-5 text-xl font-bold text-[#212121]">
+                No products found
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[#878787]">
+                We couldn't find anything matching{" "}
+                <span className="font-semibold text-[#212121]">
+                  “{query}”
+                </span>
+                . Try another product name, brand,
+                or category.
+              </p>
+
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="rounded-md border border-[#D8DDE3] bg-white px-5 py-2.5 text-sm font-semibold text-[#212121] hover:bg-[#F5F5F5]"
+                >
+                  Clear search
+                </button>
+
+                <Link
+                  to="/shop"
+                  className="rounded-md bg-[#2874F0] px-5 py-2.5 text-sm font-semibold !text-white transition hover:bg-[#1F65D6]"
+                >
+                  Browse all products
+                </Link>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
   );
 }
+
 export default Search;

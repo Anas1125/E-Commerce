@@ -287,7 +287,7 @@ function AdminOrders() {
                     onChange={(e) => setNote(e.target.value)}
                   />
                 </AdminField>
-                <button disabled={busy} className="button-primary">
+                <button disabled={busy} className="button-primary cursor-pointer">
                   {busy ? "Updating…" : "Update status"}
                 </button>
               </form>

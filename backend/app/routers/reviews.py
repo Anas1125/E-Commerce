@@ -41,7 +41,10 @@ def get_product_reviews(
 
     return db.scalars(
         select(Review)
-        .where(Review.product_id == product_id)
+        .where(
+            Review.product_id == product_id,
+            Review.status == "approved",
+        )
         .order_by(Review.created_at.desc())
     ).all()
 
@@ -57,7 +60,8 @@ def update_product_rating(
 
     reviews = db.scalars(
         select(Review).where(
-            Review.product_id == product_id
+            Review.product_id == product_id,
+            Review.status == "approved",
         )
     ).all()
 
@@ -123,13 +127,20 @@ def create_review(
         .limit(1)
     )
 
+    if verified_purchase is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only review products you have purchased and received",
+        )
+
     review = Review(
         user_id=current_user.id,
         product_id=product_id,
         rating=review_data.rating,
         title=review_data.title,
         comment=review_data.comment,
-        is_verified_purchase=verified_purchase is not None,
+        is_verified_purchase=True,
+        status="pending",
     )
 
     db.add(review)

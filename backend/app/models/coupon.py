@@ -62,6 +62,12 @@ class Coupon(Base):
         default=1
     )
 
+    first_order_only: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False
+    )
+
     start_date: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False

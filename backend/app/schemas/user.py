@@ -22,6 +22,16 @@ class UserResponse(BaseModel):
         "from_attributes": True
     }
 
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+
+class UserContactUpdate(BaseModel):
+    email: EmailStr | None = None
+    phone_number: str | None = Field(
+        default=None,
+        min_length=7,
+        max_length=20,
+    )

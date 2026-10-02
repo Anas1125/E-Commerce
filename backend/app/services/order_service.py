@@ -455,10 +455,12 @@ def update_order_status(
     admin: User,
     db: Session,
 ) -> Order:
+
     order = db.scalar(
         select(Order)
         .options(
-            selectinload(Order.items)
+            selectinload(Order.items),
+            selectinload(Order.payment),
         )
         .where(Order.id == order_id)
     )
@@ -493,11 +495,25 @@ def update_order_status(
             ),
         )
 
-    if new_status == "delivered" and order.payment_status != "paid":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An unpaid order cannot be marked as delivered",
-        )
+    # COD payment is collected when the order is delivered.
+    if new_status == "delivered":
+        if order.payment_method == "cod":
+            if order.payment is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="COD payment record not found",
+                )
+
+            if order.payment.status != "paid":
+                order.payment.status = "paid"
+
+            order.payment_status = "paid"
+
+        elif order.payment_status != "paid":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An unpaid order cannot be marked as delivered",
+            )
 
     order.order_status = new_status
 

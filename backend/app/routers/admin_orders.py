@@ -14,6 +14,7 @@ from app.services.dependencies import require_admin
 from fastapi import HTTPException, status
 from app.models.order_status_history import OrderStatusHistory
 from app.services.order_service import update_order_status
+from app.models.payment import Payment
 
 
 router = APIRouter(
@@ -145,3 +146,48 @@ def update_admin_order_status(
     order.status_history = history
 
     return order
+
+@router.patch("/{order_id}/complete-test")
+def complete_test_order(
+    order_id: int,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    order = db.scalar(
+        select(Order)
+        .options(selectinload(Order.payment))
+        .where(Order.id == order_id)
+    )
+
+    if order is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Order not found",
+        )
+
+    if order.payment_method == "cod":
+        if order.payment is None:
+            raise HTTPException(
+                status_code=400,
+                detail="COD payment record not found",
+            )
+
+        order.payment.status = "paid"
+        order.payment_status = "paid"
+
+    order.order_status = "delivered"
+
+    db.commit()
+    db.refresh(order)
+
+    return {
+        "message": "Test order completed successfully",
+        "order_id": order.id,
+        "order_status": order.order_status,
+        "payment_status": order.payment_status,
+        "payment_record_status": (
+            order.payment.status
+            if order.payment
+            else None
+        ),
+    }

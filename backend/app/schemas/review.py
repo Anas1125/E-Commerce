@@ -15,6 +15,7 @@ class ReviewResponse(BaseModel):
     product_id: int
     rating: int
     title: str | None
+    status: str
     comment: str | None
     is_verified_purchase: bool
     created_at: datetime

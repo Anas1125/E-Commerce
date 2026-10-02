@@ -279,7 +279,7 @@ function AdminProducts() {
       >
         <button
           onClick={() => show(null)}
-          className="button-primary inline-flex gap-2"
+          className="button-primary inline-flex gap-2 cursor-pointer"
         >
           <Plus size={16} />
           Add product
@@ -598,7 +598,7 @@ function AdminProducts() {
               >
                 Cancel
               </button>
-              <button disabled={busy} className="button-primary">
+              <button disabled={busy} className="button-primary cursor-pointer">
                 {busy ? "Saving…" : "Save product"}
               </button>
             </div>

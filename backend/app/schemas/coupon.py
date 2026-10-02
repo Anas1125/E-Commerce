@@ -42,6 +42,8 @@ class CouponCreate(BaseModel):
         gt=0,
     )
 
+    first_order_only: bool = False
+
     start_date: datetime
     end_date: datetime
 
@@ -59,9 +61,40 @@ class CouponResponse(BaseModel):
     usage_limit: int | None
     used_count: int
     per_user_limit: int
+    first_order_only: bool
     start_date: datetime
     end_date: datetime
     is_active: bool
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class CouponValidate(BaseModel):
+    code: str = Field(min_length=3, max_length=50)
+
+
+class CouponValidateResponse(BaseModel):
+    code: str
+    name: str
+    discount_type: str
+    value: Decimal
+    discount_amount: Decimal
+    subtotal: Decimal
+    total_after_coupon: Decimal
+    first_order_only: bool
+
+class CouponAvailableResponse(BaseModel):
+    id: int
+    code: str
+    name: str
+    discount_type: str
+    value: Decimal
+    minimum_order_amount: Decimal
+    maximum_discount: Decimal | None
+    first_order_only: bool
+    eligible: bool
+    reason: str
 
     model_config = {
         "from_attributes": True

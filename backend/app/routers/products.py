@@ -2,11 +2,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.category import Category
+from app.models.brand import Brand
 from app.models.product import Product
 from app.models.user import User
 from app.schemas.product import ProductCreate, ProductResponse
@@ -25,6 +26,39 @@ router = APIRouter(
     prefix="/api/products",
     tags=["Products"],
 )
+
+
+def assign_product_brand(db: Session, product: Product, product_data: ProductCreate) -> None:
+    fields_set = product_data.model_fields_set
+    if "brand_id" in fields_set:
+        if product_data.brand_id is None:
+            product.brand_record = None
+            return
+        brand = db.get(Brand, product_data.brand_id)
+        if brand is None:
+            raise HTTPException(status_code=400, detail="Brand not found")
+        if not brand.is_active and brand.id != product.brand_id:
+            raise HTTPException(status_code=400, detail="Brand is inactive")
+        product.brand_record = brand
+        return
+
+    if "brand" not in fields_set:
+        return
+    name = (product_data.brand or "").strip()
+    if not name:
+        product.brand_record = None
+        return
+
+    brand = db.scalar(
+        select(Brand).where(func.lower(Brand.name) == name.lower())
+    )
+    if brand is None:
+        brand = Brand(name=name, is_active=True)
+        db.add(brand)
+        db.flush()
+    elif not brand.is_active and brand.id != product.brand_id:
+        raise HTTPException(status_code=400, detail="Brand is inactive")
+    product.brand_record = brand
 
 PRODUCT_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "products"
 MAX_PRODUCT_IMAGE_SIZE = 10 * 1024 * 1024
@@ -386,13 +420,13 @@ def create_product(
         name=product_data.name,
         slug=product_data.slug,
         description=product_data.description,
-        brand=product_data.brand,
         price=product_data.price,
         category_id=product_data.category_id,
         stock=product_data.stock,
         rating=0,
         is_active=True,
     )
+    assign_product_brand(db, product, product_data)
 
     db.add(product)
     db.flush()
@@ -449,7 +483,7 @@ def update_product(
     product.name = product_data.name
     product.slug = product_data.slug
     product.description = product_data.description
-    product.brand = product_data.brand
+    assign_product_brand(db, product, product_data)
     product.price = product_data.price
     product.category_id = product_data.category_id
     product.stock = product_data.stock

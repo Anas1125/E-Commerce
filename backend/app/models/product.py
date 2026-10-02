@@ -15,7 +15,11 @@ class Product(Base):
     slug: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    brand_id: Mapped[int | None] = mapped_column(
+        ForeignKey("brands.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     price: Mapped[Decimal] = mapped_column(
         Numeric(10, 2),
@@ -43,6 +47,18 @@ class Product(Base):
     category: Mapped["Category"] = relationship(
         back_populates="products"
     )
+
+    brand_record: Mapped["Brand | None"] = relationship(
+        back_populates="products"
+    )
+
+    @property
+    def brand(self) -> str | None:
+        return self.brand_record.name if self.brand_record else None
+
+    @property
+    def brand_logo_url(self) -> str | None:
+        return self.brand_record.logo_url if self.brand_record else None
 
     discounts: Mapped[list["Discount"]] = relationship(
         back_populates="product"

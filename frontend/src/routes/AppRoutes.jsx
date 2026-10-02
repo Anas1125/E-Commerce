@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 
 import Home from "../pages/Home";
 import Shop from "../pages/Shop";
@@ -22,6 +22,9 @@ import AdminLogin from "../pages/AdminLogin";
 import AdminDashboard from "../pages/AdminDashboard";
 import AdminProducts from "../pages/AdminProducts";
 import AdminCategories from "../pages/AdminCategories";
+import AdminBrands from "../pages/AdminBrands";
+import AdminReviews from "../pages/AdminReviews";
+import AdminCoupons from "../pages/AdminCoupons";
 import AdminOrders from "../pages/AdminOrders";
 import AdminCustomers from "../pages/AdminCustomers";
 import AdminInventory from "../pages/AdminInventory";
@@ -52,8 +55,8 @@ function AppRoutes() {
   );
 
   return (
-    <BrowserRouter>
-    <ScrollToTop />
+    <>
+      <ScrollToTop />
       <Routes>
         {/* Customer storefront */}
         <Route element={<MainLayout />}>
@@ -125,15 +128,18 @@ function AppRoutes() {
 
           <Route path="products" element={<AdminProducts />} />
           <Route path="categories" element={<AdminCategories />} />
+          <Route path="brands" element={<AdminBrands />} />
           <Route path="orders" element={<AdminOrders />} />
           <Route path="customers" element={<AdminCustomers />} />
           <Route path="inventory" element={<AdminInventory />} />
           <Route path="discounts" element={<AdminDiscounts />} />
+          <Route path="coupons" element={<AdminCoupons />} />
+          <Route path="reviews" element={<AdminReviews />} />
           <Route path="refunds" element={<AdminRefunds />} />
           <Route path="settings" element={<AdminSiteSettings />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </>
   );
 }
 

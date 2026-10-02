@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useState } from "react";
+import { Heart, ShoppingBag, Trash2, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { ShoppingBag, Trash2 } from "lucide-react";
+
 import api from "../services/api";
 import useAuth from "../context/useAuth";
+
 import {
   EmptyState,
   LoadingState,
-  PageIntro,
   Price,
 } from "../components/Storefront";
 
 function Wishlist() {
   const { isAuthenticated, refreshCounts } = useAuth();
+
   const [items, setItems] = useState([]);
   const [products, setProducts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  /* =========================================================
+     LOAD WISHLIST
+  ========================================================= */
 
   const load = useCallback(async () => {
     if (!isAuthenticated) {
@@ -23,21 +29,30 @@ function Wishlist() {
       setLoading(false);
       return;
     }
+
     try {
-      const [wishlist, productResponse] = await Promise.all([
-        api.get("/wishlist/"),
-        api.get("/products/"),
-      ]);
-      setItems(wishlist.data.items);
+      setLoading(true);
+      setError("");
+
+      const [wishlistResponse, productResponse] =
+        await Promise.all([
+          api.get("/wishlist/"),
+          api.get("/products/"),
+        ]);
+
+      setItems(wishlistResponse.data.items || []);
+
       setProducts(
         Object.fromEntries(
-          productResponse.data.map((product) => [product.id, product]),
+          (productResponse.data || []).map(
+            (product) => [product.id, product],
+          ),
         ),
       );
-      setError("");
     } catch (requestError) {
       setError(
-        requestError.response?.data?.detail || "Unable to load wishlist.",
+        requestError.response?.data?.detail ||
+          "Unable to load your wishlist.",
       );
     } finally {
       setLoading(false);
@@ -46,25 +61,51 @@ function Wishlist() {
 
   useEffect(() => {
     const timer = setTimeout(load, 0);
-    return () => clearTimeout(timer);
+
+    return () => {
+      clearTimeout(timer);
+    };
   }, [load]);
 
-  const remove = async (id) => {
+  /* =========================================================
+     REMOVE FROM WISHLIST
+  ========================================================= */
+
+  const remove = async (productId) => {
     try {
-      await api.delete(`/wishlist/${id}`);
-      setItems((current) => current.filter((item) => item.product_id !== id));
+      await api.delete(`/wishlist/${productId}`);
+
+      setItems((current) =>
+        current.filter(
+          (item) =>
+            item.product_id !== productId,
+        ),
+      );
+
       await refreshCounts();
+
+      setError("");
     } catch (requestError) {
       setError(
-        requestError.response?.data?.detail || "Unable to remove this item.",
+        requestError.response?.data?.detail ||
+          "Unable to remove this item.",
       );
     }
   };
 
-  const addToCart = async (id) => {
+  /* =========================================================
+     ADD TO CART
+  ========================================================= */
+
+  const addToCart = async (productId) => {
     try {
-      await api.post("/cart/items", { product_id: id, quantity: 1 });
+      await api.post("/cart/items", {
+        product_id: productId,
+        quantity: 1,
+      });
+
       await refreshCounts();
+
       setError("Added to your cart.");
     } catch (requestError) {
       setError(
@@ -74,92 +115,331 @@ function Wishlist() {
     }
   };
 
+  /* =========================================================
+     RENDER
+  ========================================================= */
+
   return (
-    <div className="mx-auto max-w-7xl px-6 py-12">
-      <PageIntro
-        eyebrow="Saved for later"
-        title="Your Wishlist"
-        description="A place for the things you’d like to come back to."
-      />
-      {loading ? (
-        <LoadingState />
-      ) : !isAuthenticated ? (
-        <EmptyState
-          title="Sign in to see your wishlist"
-          text="Save favourites and find them here next time."
-          action="Sign in"
-          to="/login"
-        />
-      ) : error && items.length === 0 ? (
-        <EmptyState title="Wishlist unavailable" text={error} />
-      ) : items.length === 0 ? (
-        <EmptyState
-          title="Nothing saved yet"
-          text="Tap the heart on a product to keep it close."
-          action="Explore the shop"
-        />
-      ) : (
-        <>
-          {error && (
-            <p role="status" className="mb-4 text-sm text-[#737A74]">
-              {error}
-            </p>
-          )}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {items.map((item) => (
-              <article
-                key={item.product_id}
-                className="overflow-hidden rounded-2xl border border-[#E3E5DF] bg-white"
-              >
-                <Link
-                  to={`/products/${item.product_id}`}
-                  className="block aspect-[4/3] bg-[#F0F1EC]"
-                >
-                  {item.image_url && (
-                    <img
-                      src={item.image_url}
-                      alt={item.product_name}
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                </Link>
-                <div className="p-5">
-                  <p className="text-xs uppercase tracking-wide text-[#737A74]">
-                    {products[item.product_id]?.brand || "TerraLens"}
-                  </p>
+    <main className="min-h-screen bg-[#F1F3F6]">
+
+      <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+
+        {/* ===================================================
+            HEADER
+        =================================================== */}
+
+        <section className="rounded-lg bg-white px-5 py-6 sm:px-7">
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
+            <div className="flex items-start gap-4">
+
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EAF2FF] text-[#2874F0]">
+                <Heart
+                  size={22}
+                  fill="currentColor"
+                />
+              </div>
+
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#2874F0]">
+                  Saved for later
+                </p>
+
+                <h1 className="mt-1 text-2xl font-bold text-[#212121] sm:text-3xl">
+                  My Wishlist
+                </h1>
+
+                <p className="mt-1 text-sm text-[#878787]">
+                  Keep track of products you want to
+                  come back to.
+                </p>
+              </div>
+              
+            </div>
+
+            {!loading &&
+              isAuthenticated &&
+              items.length > 0 && (
+                <div className="flex items-center gap-3">
                   <Link
-                    to={`/products/${item.product_id}`}
-                    className="mt-1 block font-medium"
+                    to="/checkout"
+                    className="inline-flex items-center gap-2 rounded-md bg-[#2874F0] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#1f65d6]"
                   >
-                    {item.product_name}
+                    Continue to Checkout
+                    <ArrowRight size={17} />
                   </Link>
-                  <Price
-                    value={item.price}
-                    className="mt-3 block font-semibold"
-                  />
-                  <div className="mt-5 flex gap-2">
-                    <button
-                      className="button-primary inline-flex flex-1 gap-2"
-                      onClick={() => addToCart(item.product_id)}
-                    >
-                      <ShoppingBag size={16} />
-                      Add to cart
-                    </button>
-                    <button
-                      className="button-secondary"
-                      aria-label={`Remove ${item.product_name}`}
-                      onClick={() => remove(item.product_id)}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+
+                  <div className="rounded-md border border-[#E0E0E0] bg-white px-6 py-3 text-center">
+                    <p className="text-xl font-bold text-[#212121]">{items.length}</p>
+                    <p className="text-xs text-[#878787]">saved items</p>
                   </div>
                 </div>
-              </article>
-            ))}
+              )}
+
           </div>
-        </>
-      )}
-    </div>
+
+        </section>
+
+
+        {/* ===================================================
+            CONTENT
+        =================================================== */}
+
+        <section className="mt-5">
+
+          {loading ? (
+            <div className="rounded-lg bg-white px-6 py-12">
+              <LoadingState label="Loading your wishlist..." />
+            </div>
+          ) : !isAuthenticated ? (
+
+            <div className="rounded-lg bg-white px-6 py-16 text-center">
+
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EAF2FF] text-[#2874F0]">
+                <Heart size={24} />
+              </div>
+
+              <h2 className="mt-5 text-xl font-bold text-[#212121]">
+                Sign in to see your wishlist
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#878787]">
+                Save your favourite products and come
+                back to them whenever you want.
+              </p>
+
+              <Link
+                to="/login"
+                className="mt-6 inline-flex items-center rounded-md bg-[#2874F0] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#1F65D6]"
+              >
+                Sign in
+              </Link>
+
+            </div>
+
+          ) : error && items.length === 0 ? (
+
+            <div className="rounded-lg bg-white px-6 py-12">
+              <EmptyState
+                title="Wishlist unavailable"
+                text={error}
+              />
+            </div>
+
+          ) : items.length === 0 ? (
+
+            <div className="rounded-lg bg-white px-6 py-16 text-center">
+
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EAF2FF] text-[#2874F0]">
+                <Heart size={24} />
+              </div>
+
+              <h2 className="mt-5 text-xl font-bold text-[#212121]">
+                Your wishlist is empty
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#878787]">
+                Tap the heart on any product to save it
+                here for later.
+              </p>
+
+              <Link
+                to="/shop"
+                className="mt-6 inline-flex items-center gap-2 rounded-md bg-[#2874F0] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#1F65D6]"
+              >
+                Explore the shop
+                <ShoppingBag size={16} />
+              </Link>
+
+            </div>
+
+          ) : (
+
+            <>
+
+              {/* Status message */}
+
+              {error && (
+                <div
+                  role="status"
+                  className="mb-4 rounded-md border border-[#E0E0E0] bg-white px-4 py-3 text-sm text-[#5F6368]"
+                >
+                  {error}
+                </div>
+              )}
+
+
+              {/* Wishlist grid */}
+
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+
+                {items.map((item) => {
+                  const product =
+                    products[item.product_id];
+
+                  const brand =
+                    product?.brand ||
+                    "TerraLens";
+
+                  return (
+                    <article
+                      key={item.product_id}
+                      className="group overflow-hidden rounded-lg border border-[#E0E0E0] bg-white transition duration-200 hover:-translate-y-0.5 hover:border-[#C5D6EA] hover:shadow-md"
+                    >
+
+                      {/* Image */}
+
+                      <Link
+                        to={`/products/${item.product_id}`}
+                        className="relative block aspect-square overflow-hidden bg-[#F5F6F7]"
+                      >
+
+                        {item.image_url ? (
+                          <img
+                            src={item.image_url}
+                            alt={item.product_name}
+                            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[#2874F0]">
+                            <ShoppingBag size={32} />
+                          </div>
+                        )}
+
+                        {/* Wishlist badge */}
+
+                        <button
+                          type="button"
+                          onClick={() => remove(item.product_id)}
+                          className="absolute left-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-[#E0E0E0] bg-white text-[#2874F0] shadow-sm transition hover:bg-[#F1F3F6]"
+                          aria-label={`Remove ${item.product_name} from wishlist`}
+                        >
+                          <Heart size={18} fill="currentColor" />
+                        </button>
+
+                      </Link>
+
+
+                      {/* Details */}
+
+                      <div className="p-4">
+
+                        <p className="truncate text-[11px] font-medium uppercase tracking-wide text-[#878787]">
+                          {brand}
+                        </p>
+
+                        <Link
+                          to={`/products/${item.product_id}`}
+                          className="mt-1 block min-h-[40px] text-sm font-semibold leading-5 text-[#212121] transition hover:text-[#2874F0]"
+                        >
+                          {item.product_name}
+                        </Link>
+
+                        <div className="mt-3">
+                          <Price
+                            value={item.price}
+                            className="text-base font-bold text-[#212121]"
+                          />
+                        </div>
+
+
+                        {/* Actions */}
+
+                        <div className="mt-4 flex gap-2">
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              addToCart(
+                                item.product_id,
+                              )
+                            }
+                            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-[#2874F0] px-3 text-xs font-semibold !text-white transition hover:bg-[#1F65D6] cursor-pointer"
+                          >
+                            <ShoppingBag size={15} />
+                            Add to cart
+                          </button>
+
+                          <button
+                            type="button"
+                            aria-label={`Remove ${item.product_name} from wishlist`}
+                            onClick={() =>
+                              remove(
+                                item.product_id,
+                              )
+                            }
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#E0E0E0] bg-white text-[#878787] transition hover:border-[#E0E0E0] hover:bg-[#FFF5F5] hover:text-[#D32F2F] cursor-pointer"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+
+                        </div>
+
+                      </div>
+
+                    </article>
+                  );
+                })}
+
+              </div>
+
+
+              {/* Bottom shop link */}
+
+              <div className="mt-6 flex flex-col gap-4 rounded-lg bg-white px-5 py-5 ring-1 ring-[#E0E0E0] sm:flex-row sm:items-center sm:justify-between sm:px-6">
+
+                <div>
+                  <h2 className="text-sm font-semibold text-[#212121]">
+                    Looking for more?
+                  </h2>
+
+                  <p className="mt-1 text-xs text-[#878787]">
+                    Discover more products and add them
+                    to your wishlist.
+                  </p>
+                </div>
+
+                <Link
+                  to="/shop"
+                  className="inline-flex w-fit items-center gap-2 rounded-md border border-[#2874F0] px-5 py-2.5 text-sm font-semibold !text-[#2874F0] transition hover:bg-[#EAF2FF]"
+                >
+                  Continue shopping
+                  <ArrowRightIcon />
+                </Link>
+
+              </div>
+
+            </>
+
+          )}
+
+        </section>
+
+      </div>
+    </main>
+  );
+}
+
+
+/* Small arrow component so we don't add another
+   lucide import just for one icon. */
+function ArrowRightIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
   );
 }
 

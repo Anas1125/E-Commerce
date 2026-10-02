@@ -147,7 +147,7 @@ function AdminRefunds() {
               <h2 className="text-xl font-semibold">Refund #{detail.id}</h2>
               <button
                 onClick={() => setDetail(null)}
-                className="text-sm text-[#486B57]"
+                className="text-sm text-[#486B57] cursor-pointer"
               >
                 Close
               </button>
