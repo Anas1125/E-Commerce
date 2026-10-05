@@ -88,3 +88,8 @@ class User(Base):
     orders: Mapped[list["Order"]] = relationship(
         back_populates="user"
     )
+
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )

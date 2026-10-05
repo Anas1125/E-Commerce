@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.order import Order
+from app.models.refund import Refund
 from app.database import get_db
 from app.models.user import User
 from app.schemas.refund import RefundCreate, RefundResponse
@@ -38,6 +41,26 @@ def create_refund_request(
         user=current_user,
         db=db,
     )
+
+@router.get(
+    "/my",
+    response_model=list[RefundResponse],
+)
+def get_my_refunds(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(
+    select(Refund)
+    .join(
+        Order,
+        Order.id == Refund.order_id,
+    )
+    .where(
+        Order.user_id == current_user.id,
+    )
+    .order_by(Refund.id.desc())
+).all()
 
 @router.post(
     "/{refund_id}/approve",

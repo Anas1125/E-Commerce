@@ -85,7 +85,7 @@ function AdminInventory() {
                 <td className="px-5 py-4">
                   <button
                     aria-label={`Edit inventory for ${products[r.product_id]?.name || r.product_id}`}
-                    className="rounded-lg p-2 hover:bg-[#DCE7DE]"
+                    className="rounded-lg p-2 hover:bg-[#DCE7DE] cursor-pointer"
                     onClick={() => {
                       setEdit(r);
                       setValue(String(r.quantity));
@@ -130,12 +130,12 @@ function AdminInventory() {
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
-                className="button-secondary"
+                className="button-secondary cursor-pointer"
                 onClick={() => setEdit(null)}
               >
                 Cancel
               </button>
-              <button disabled={busy} className="button-primary">
+              <button disabled={busy} className="button-primary cursor-pointer">
                 {busy ? "Saving…" : "Save quantity"}
               </button>
             </div>

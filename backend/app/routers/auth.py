@@ -1,5 +1,10 @@
+import hashlib
+import os
+import secrets
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,7 +19,9 @@ from app.schemas.user import (
 from app.services.auth import hash_password, verify_password
 from app.services.dependencies import get_current_user
 from app.services.security import create_access_token
-
+from app.models.password_reset_token import PasswordResetToken
+from app.services.email import send_password_reset_email
+from app.services.notifications import send_admin_notification
 
 router = APIRouter(
     prefix="/api/auth",
@@ -65,6 +72,114 @@ def register(
     db.commit()
     db.refresh(user)
 
+    customer_name = " ".join(
+        part
+        for part in [
+            user.first_name,
+            user.last_name,
+        ]
+        if part
+    ).strip()
+
+    if not customer_name:
+        customer_name = "Customer"
+
+    send_admin_notification(
+        subject=f"👤 TerraLens new customer — {customer_name}",
+        html=f"""
+            <div
+                style="
+                    font-family: Arial, sans-serif;
+                    max-width: 680px;
+                    margin: 0 auto;
+                    padding: 28px;
+                    color: #1F2521;
+                "
+            >
+                <div
+                    style="
+                        padding-bottom: 20px;
+                        border-bottom: 1px solid #E3E5DF;
+                    "
+                >
+                    <h2
+                        style="
+                            margin: 0;
+                            color: #486B57;
+                        "
+                    >
+                        👤 New Customer Registered
+                    </h2>
+
+                    <p
+                        style="
+                            margin: 8px 0 0;
+                            color: #737A74;
+                        "
+                    >
+                        A new customer has created an account.
+                    </p>
+                </div>
+
+                <div style="padding: 22px 0;">
+                    <p>
+                        <strong>Name:</strong>
+                        {customer_name}
+                    </p>
+
+                    <p>
+                        <strong>Email:</strong>
+                        {user.email}
+                    </p>
+
+                    <p>
+                        <strong>Phone:</strong>
+                        {user.phone_number}
+                    </p>
+
+                    <p>
+                        <strong>Customer ID:</strong>
+                        #{user.id}
+                    </p>
+
+                    <p>
+                        <strong>Role:</strong>
+                        {user.role}
+                    </p>
+
+                    <p>
+                        <strong>Registered:</strong>
+                        {user.created_at.strftime("%d %b %Y, %I:%M %p")}
+                    </p>
+                </div>
+
+                <div
+                    style="
+                        margin-top: 10px;
+                        padding: 18px;
+                        background: #F8F9F6;
+                        border-radius: 10px;
+                    "
+                >
+                    <p style="margin: 0;">
+                        <strong>Account status:</strong>
+                        Active
+                    </p>
+                </div>
+
+                <p
+                    style="
+                        margin-top: 24px;
+                        font-size: 13px;
+                        color: #737A74;
+                    "
+                >
+                    This customer is now available in the TerraLens admin panel.
+                </p>
+            </div>
+        """,
+    )
+
     return user
 
 
@@ -72,6 +187,12 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 @router.post(
     "/login",
@@ -110,6 +231,81 @@ def login(
         "token_type": "bearer",
     }
 
+@router.post(
+    "/forgot-password",
+)
+def forgot_password(
+    request: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    user = db.scalar(
+        select(User).where(User.email == str(request.email))
+    )
+
+    # Always return the same response.
+    # This prevents revealing whether an email exists.
+    if not user:
+        return {
+            "message": (
+                "If an account with that email exists, "
+                "a password reset link has been sent."
+            )
+        }
+
+    # Invalidate previous unused reset tokens for this user.
+    existing_tokens = db.scalars(
+        select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False,
+        )
+    ).all()
+
+    for reset_token in existing_tokens:
+        reset_token.used = True
+
+    # Generate a cryptographically secure random token.
+    raw_token = secrets.token_urlsafe(48)
+
+    # Store only the hash in the database.
+    token_hash = hashlib.sha256(
+        raw_token.encode()
+    ).hexdigest()
+
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=datetime.utcnow() + timedelta(minutes=30),
+        used=False,
+    )
+
+    db.add(reset_token)
+    db.commit()
+
+    reset_url = (
+        f"{os.getenv('FRONTEND_URL', 'http://localhost:5173')}"
+        f"/reset-password?token={raw_token}"
+    )
+
+    try:
+        send_password_reset_email(
+            email=user.email,
+            reset_url=reset_url,
+        )
+    except Exception:
+        db.delete(reset_token)
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to send password reset email.",
+        )
+
+    return {
+        "message": (
+            "If an account with that email exists, "
+            "a password reset link has been sent."
+        )
+    }
 
 @router.get(
     "/me",
@@ -172,3 +368,64 @@ def update_my_contact(
     db.refresh(current_user)
 
     return current_user
+
+@router.post(
+    "/reset-password",
+)
+def reset_password(
+    request: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    token_hash = hashlib.sha256(
+        request.token.encode()
+    ).hexdigest()
+
+    reset_token = db.scalar(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == token_hash,
+        )
+    )
+
+    if not reset_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset link.",
+        )
+
+    if reset_token.used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This password reset link has already been used.",
+        )
+
+    if reset_token.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This password reset link has expired.",
+        )
+
+    user = db.get(User, reset_token.user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid password reset link.",
+        )
+
+    if len(request.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters long.",
+        )
+
+    user.password_hash = hash_password(
+        request.new_password
+    )
+
+    reset_token.used = True
+
+    db.commit()
+
+    return {
+        "message": "Password has been reset successfully.",
+    }

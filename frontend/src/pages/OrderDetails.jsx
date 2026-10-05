@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import {
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -13,6 +17,8 @@ import {
 
 import api from "../services/api";
 import useAuth from "../context/useAuth";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 import {
   EmptyState,
@@ -23,6 +29,9 @@ import {
 function OrderDetails() {
   const { id } = useParams();
   const { isAuthenticated } = useAuth();
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
 
   const [order, setOrder] = useState(null);
   const [history, setHistory] = useState([]);
@@ -67,17 +76,32 @@ function OrderDetails() {
 
   if (loading && isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#F1F3F6] px-4 py-12 sm:px-6">
+      <>
+        <SEO
+          title="Order Details"
+          description={`View your ${siteName} order details, payment status, and delivery progress.`}
+          noIndex
+        />
+
+        <div className="min-h-screen bg-[#F1F3F6] px-4 py-12 sm:px-6">
         <div className="mx-auto max-w-7xl">
           <LoadingState />
         </div>
       </div>
+      </>
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#F1F3F6] px-4 py-16 sm:px-6">
+      <>
+        <SEO
+          title="Order Details"
+          description={`View your ${siteName} order details, payment status, and delivery progress.`}
+          noIndex
+        />
+
+        <div className="min-h-screen bg-[#F1F3F6] px-4 py-16 sm:px-6">
         <div className="mx-auto max-w-4xl">
           <EmptyState
             title="Sign in to view this order"
@@ -87,12 +111,20 @@ function OrderDetails() {
           />
         </div>
       </div>
+      </>
     );
   }
 
   if (error || !order) {
     return (
-      <div className="min-h-screen bg-[#F1F3F6] px-4 py-16 sm:px-6">
+      <>
+        <SEO
+          title="Order Details"
+          description={`View your ${siteName} order details, payment status, and delivery progress.`}
+          noIndex
+        />
+
+        <div className="min-h-screen bg-[#F1F3F6] px-4 py-16 sm:px-6">
         <div className="mx-auto max-w-4xl">
           <EmptyState
             title="Order unavailable"
@@ -105,6 +137,7 @@ function OrderDetails() {
           />
         </div>
       </div>
+      </>
     );
   }
 
@@ -114,7 +147,14 @@ function OrderDetails() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F1F3F6] pb-16">
+    <>
+      <SEO
+        title="Order Details"
+        description={`View your ${siteName} order details, payment status, and delivery progress.`}
+        noIndex
+      />
+
+      <div className="min-h-screen bg-[#F1F3F6] pb-16">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
         {/* TOP */}
@@ -449,6 +489,7 @@ function OrderDetails() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

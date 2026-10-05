@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useState,
 } from "react";
@@ -18,10 +19,16 @@ import { Link, useNavigate } from "react-router-dom";
 
 import api from "../services/api";
 import useAuth from "../context/useAuth";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 function Addresses() {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
 
   const [addresses, setAddresses] =
     useState([]);
@@ -235,6 +242,14 @@ function Addresses() {
 
   if (!isAuthenticated) {
     return (
+      <>
+        <SEO
+          title="Addresses"
+          description={`Manage your saved delivery addresses on ${siteName}.`}
+          noIndex
+        />
+
+      
       <div className="min-h-screen bg-[#F1F3F6] px-4 py-10 sm:px-6">
         <div className="mx-auto max-w-4xl">
           <div className="border border-[#E0E0E0] bg-white px-6 py-16 text-center">
@@ -261,11 +276,18 @@ function Addresses() {
           </div>
         </div>
       </div>
+     </>
     );
   }
 
   if (loading) {
     return (
+      <>
+        <SEO
+        title="Addresses"
+        description={`Manage your saved delivery addresses on ${siteName}.`}
+        noIndex
+      />
       <div className="min-h-screen bg-[#F1F3F6] px-4 py-10 sm:px-6">
         <div className="mx-auto max-w-7xl">
           <div className="border border-[#E0E0E0] bg-white px-6 py-16 text-center">
@@ -275,11 +297,19 @@ function Addresses() {
           </div>
         </div>
       </div>
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F1F3F6] px-4 py-7 pb-14 sm:px-6 sm:py-9">
+    <>
+      <SEO
+        title="Addresses"
+        description={`Manage your saved delivery addresses on ${siteName}.`}
+        noIndex
+      />
+
+      <div className="min-h-screen bg-[#F1F3F6] px-4 py-7 pb-14 sm:px-6 sm:py-9">
 
       <div className="mx-auto max-w-7xl">
 
@@ -730,6 +760,7 @@ function Addresses() {
         </div>
       )}
     </div>
+    </>
   );
 }
 

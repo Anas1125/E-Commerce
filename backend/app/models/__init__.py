@@ -18,6 +18,7 @@ from app.models.coupon_usage import CouponUsage
 from app.models.refund import Refund
 from app.models.order_status_history import OrderStatusHistory
 from app.models.site_settings import SiteSettings
+from app.models.password_reset_token import PasswordResetToken
 
 
 
@@ -42,4 +43,5 @@ __all__ = [
     "Refund",
     "OrderStatusHistory",
     "SiteSettings",
+    "PasswordResetToken",
 ]

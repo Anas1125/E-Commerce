@@ -245,7 +245,7 @@ function AdminCoupons() {
         description="Manage customer coupon codes, eligibility and usage rules."
       >
         <button
-          className="button-primary inline-flex items-center gap-2"
+          className="button-primary inline-flex items-center gap-2 cursor-pointer"
           onClick={openCreate}
         >
           <Plus size={16} />
@@ -369,7 +369,7 @@ function AdminCoupons() {
                       onClick={() =>
                         openEdit(coupon)
                       }
-                      className="rounded-lg p-2 text-[#486B57] hover:bg-[#F5F5F1]"
+                      className="rounded-lg p-2 text-[#486B57] hover:bg-[#F5F5F1] cursor-pointer"
                     >
                       <Edit3 size={16} />
                     </button>
@@ -384,7 +384,7 @@ function AdminCoupons() {
                       onClick={() =>
                         toggleStatus(coupon)
                       }
-                      className="rounded-lg p-2 text-[#486B57] hover:bg-[#F5F5F1]"
+                      className="rounded-lg p-2 text-[#486B57] hover:bg-[#F5F5F1] cursor-pointer"
                     >
                       <Power size={16} />
                     </button>
@@ -395,7 +395,7 @@ function AdminCoupons() {
                       onClick={() =>
                         remove(coupon)
                       }
-                      className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                      className="rounded-lg p-2 text-red-600 hover:bg-red-50 cursor-pointer"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -692,7 +692,7 @@ function AdminCoupons() {
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
-                className="button-secondary"
+                className="button-secondary cursor-pointer"
                 onClick={closeModal}
                 disabled={busy}
               >
@@ -701,7 +701,7 @@ function AdminCoupons() {
 
               <button
                 disabled={busy}
-                className="button-primary inline-flex items-center gap-2"
+                className="button-primary inline-flex items-center gap-2 cursor-pointer"
               >
                 <CheckCircle2 size={16} />
 

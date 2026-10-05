@@ -337,6 +337,12 @@ def update_product_inventory(
             detail="Product not found",
         )
 
+    if inventory_data.reserved_quantity > inventory_data.quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reserved quantity cannot be greater than stock",
+        )
+
     inventory = db.scalar(
         select(Inventory).where(
             Inventory.product_id == product_id
@@ -347,18 +353,14 @@ def update_product_inventory(
         inventory = Inventory(
             product_id=product_id,
             quantity=inventory_data.quantity,
-            reserved_quantity=0,
+            reserved_quantity=inventory_data.reserved_quantity,
         )
-
         db.add(inventory)
     else:
-        if inventory_data.quantity < inventory.reserved_quantity:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Quantity cannot be less than reserved quantity",
-            )
-
         inventory.quantity = inventory_data.quantity
+        inventory.reserved_quantity = (
+            inventory_data.reserved_quantity
+        )
 
     product.stock = inventory_data.quantity
 

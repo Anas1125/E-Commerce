@@ -10,6 +10,7 @@ from app.schemas.order import (
 from app.database import get_db
 from app.models.order import Order
 from app.models.user import User
+from app.models.order_item import OrderItem
 from app.services.dependencies import require_admin
 from fastapi import HTTPException, status
 from app.models.order_status_history import OrderStatusHistory
@@ -23,10 +24,14 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_model=AdminOrderListPaginatedResponse)
+@router.get(
+    "/",
+    response_model=AdminOrderListPaginatedResponse,
+)
 def get_all_orders(
     order_status: str | None = Query(default=None),
     payment_status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(require_admin),
@@ -44,15 +49,49 @@ def get_all_orders(
     count_query = select(Order)
 
     if order_status:
-        query = query.where(Order.order_status == order_status)
-        count_query = count_query.where(Order.order_status == order_status)
+        query = query.where(
+            Order.order_status == order_status
+        )
+        count_query = count_query.where(
+            Order.order_status == order_status
+        )
 
     if payment_status:
-        query = query.where(Order.payment_status == payment_status)
-        count_query = count_query.where(Order.payment_status == payment_status)
+        query = query.where(
+            Order.payment_status == payment_status
+        )
+        count_query = count_query.where(
+            Order.payment_status == payment_status
+        )
+
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
+
+        search_filter = (
+            Order.order_number.ilike(search_term)
+            | Order.user.has(
+                User.first_name.ilike(search_term)
+            )
+            | Order.user.has(
+                User.last_name.ilike(search_term)
+            )
+            | Order.user.has(
+                User.email.ilike(search_term)
+            )
+            | Order.user.has(
+                User.phone_number.ilike(search_term)
+            )
+            | Order.items.any(
+                OrderItem.product_name.ilike(search_term)
+            )
+        )
+
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
 
     total = db.scalar(
-        select(func.count()).select_from(count_query.subquery())
+        select(func.count())
+        .select_from(count_query.subquery())
     ) or 0
 
     offset = (page - 1) * limit
@@ -68,7 +107,9 @@ def get_all_orders(
         "total": total,
         "page": page,
         "limit": limit,
-        "total_pages": (total + limit - 1) // limit,
+        "total_pages": (
+            (total + limit - 1) // limit
+        ),
     }
 
 @router.get("/{order_id}", response_model=AdminOrderResponse)

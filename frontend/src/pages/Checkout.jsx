@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   ArrowLeft,
@@ -18,6 +24,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import api from "../services/api";
 import useAuth from "../context/useAuth";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 import {
   EmptyState,
@@ -33,7 +41,9 @@ function Checkout() {
     updateUser,
   } = useAuth();
   const navigate = useNavigate();
-
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
   const [cart, setCart] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [selected, setSelected] = useState("");
@@ -318,6 +328,11 @@ function Checkout() {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F1F3F6] px-6 py-12">
+        <SEO
+          title="Checkout"
+          description={`Complete your ${siteName} order securely.`}
+          noIndex
+        />
         <div className="mx-auto max-w-7xl">
           <LoadingState />
         </div>
@@ -328,6 +343,11 @@ function Checkout() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#F1F3F6] px-6 py-20">
+        <SEO
+          title="Checkout"
+          description={`Complete your ${siteName} order securely.`}
+          noIndex
+        />
         <div className="mx-auto max-w-4xl">
           <EmptyState
             title="Sign in to check out"
@@ -343,6 +363,11 @@ function Checkout() {
   if (!cart?.items?.length) {
     return (
       <div className="min-h-screen bg-[#F1F3F6] px-6 py-20">
+        <SEO
+          title="Checkout"
+          description={`Complete your ${siteName} order securely.`}
+          noIndex
+        />
         <div className="mx-auto max-w-4xl">
           <EmptyState
             title="Your cart is empty"
@@ -357,6 +382,11 @@ function Checkout() {
 
   return (
     <>
+    <SEO
+      title="Checkout"
+      description={`Complete your ${siteName} order securely.`}
+      noIndex
+    />
       <div className="min-h-screen bg-[#F1F3F6] pb-16">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           {/* HEADER */}

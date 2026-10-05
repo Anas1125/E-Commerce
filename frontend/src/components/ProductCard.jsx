@@ -1,46 +1,144 @@
-import { Heart, Star } from "lucide-react";
+import {
+  useEffect,
+  useState,
+} from "react";
+import {
+  Heart,
+  Star,
+} from "lucide-react";
 import { Link } from "react-router-dom";
-import { useState } from "react";
+
 import api from "../services/api";
 import useAuth from "../context/useAuth";
 import { Price } from "./Storefront";
 
-function ProductCard({ product, imageUrl }) {
-  const { isAuthenticated, refreshCounts } = useAuth();
+function ProductCard({
+  product,
+  imageUrl,
+}) {
+  const {
+    isAuthenticated,
+    refreshCounts,
+  } = useAuth();
+
   const [saved, setSaved] = useState(false);
   const [notice, setNotice] = useState("");
-  const stock = Number(product.available_stock ?? product.stock ?? 0);
-  const toggleWishlist = async () => {
+
+  const stock = Number(
+    product.available_stock ??
+      product.stock ??
+      0,
+  );
+
+  useEffect(() => {
     if (!isAuthenticated) {
-      setNotice("Sign in to save products.");
       return;
     }
+
+    let cancelled = false;
+
+    const checkWishlist = async () => {
+      try {
+        const response = await api.get(
+          "/wishlist/",
+        );
+
+        const wishlistItems =
+          response.data?.items || [];
+
+        const alreadySaved =
+          wishlistItems.some(
+            (item) =>
+              item.product_id ===
+              product.id,
+          );
+
+        if (!cancelled) {
+          setSaved(alreadySaved);
+        }
+      } catch {
+        // Ignore wishlist check errors.
+      }
+    };
+
+    checkWishlist();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isAuthenticated,
+    product.id,
+  ]);
+
+  const toggleWishlist = async () => {
+    if (!isAuthenticated) {
+      setNotice(
+        "Sign in to save products.",
+      );
+      return;
+    }
+
     try {
       if (saved) {
-        await api.delete(`/wishlist/${product.id}`);
+        await api.delete(
+          `/wishlist/${product.id}`,
+        );
+
         setSaved(false);
-        setNotice("Removed from wishlist.");
+        setNotice(
+          "Removed from wishlist.",
+        );
       } else {
-        await api.post(`/wishlist/${product.id}`);
+        await api.post(
+          `/wishlist/${product.id}`,
+        );
+
         setSaved(true);
-        setNotice("Saved to wishlist.");
+        setNotice(
+          "Saved to wishlist.",
+        );
       }
+
       await refreshCounts();
     } catch (error) {
-      setNotice(error.response?.data?.detail || "Unable to update wishlist.");
+      setNotice(
+        error.response?.data?.detail ||
+          "Unable to update wishlist.",
+      );
     }
   };
+
   return (
     <article className="group relative overflow-hidden rounded-2xl border border-[#E3E5DF] bg-white transition hover:-translate-y-1 hover:shadow-[0_12px_30px_-24px_#1f2521]">
       <button
         type="button"
         onClick={toggleWishlist}
-        aria-label={`${saved ? "Remove" : "Add"} ${product.name} ${saved ? "from" : "to"} wishlist`}
-        className="absolute right-3 top-3 z-10 rounded-full border border-[#E3E5DF] bg-white p-2 text-[#486B57] hover:bg-[#DCE7DE]"
+        aria-label={`${
+          saved ? "Remove" : "Add"
+        } ${product.name} ${
+          saved ? "from" : "to"
+        } wishlist`}
+        className={`absolute right-3 top-3 z-10 rounded-full border p-2 cursor-pointer transition ${
+          saved
+            ? "border-[#2874F0] bg-[#2874F0] text-white hover:bg-[#1f63d1]"
+            : "border-[#E3E5DF] bg-white text-[#486B57] hover:bg-[#DCE7DE]"
+        }`}
       >
-        <Heart size={17} fill={saved ? "currentColor" : "none"} />
+        <Heart
+          size={17}
+          fill={
+            saved
+              ? "currentColor"
+              : "none"
+          }
+        />
       </button>
-      <Link to={`/products/${product.id}`} className="block">
+
+      <Link
+        to={`/products/${product.id}`}
+        className="block h-full cursor-pointer"
+      >
         <div className="aspect-[4/3] overflow-hidden bg-[#F0F1EC]">
           {imageUrl ? (
             <img
@@ -56,37 +154,61 @@ function ProductCard({ product, imageUrl }) {
             </div>
           )}
         </div>
-      </Link>
-      <div className="p-4">
-        <p className="text-[11px] font-medium uppercase tracking-[.14em] text-[#737A74]">
-          {product.brand || "TerraLens"}
-        </p>
-        <Link to={`/products/${product.id}`}>
+
+        <div className="p-4">
+          <p className="text-[11px] font-medium uppercase tracking-[.14em] text-[#737A74]">
+            {product.brand ||
+              "TerraLens"}
+          </p>
+
           <h3 className="mt-1 min-h-12 font-medium leading-6 hover:text-[#486B57]">
             {product.name}
           </h3>
-        </Link>
-        <div className="mt-2 flex items-center gap-1 text-[#486B57]">
-          <Star size={14} fill="currentColor" />
-          <span className="text-xs text-[#737A74]">
-            {Number(product.rating || 0).toFixed(1)}
-          </span>
+
+          <div className="mt-2 flex items-center gap-1 text-[#486B57]">
+            <Star
+              size={14}
+              fill="currentColor"
+            />
+
+            <span className="text-xs text-[#737A74]">
+              {Number(
+                product.rating || 0,
+              ).toFixed(1)}
+            </span>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <Price
+              value={product.price}
+              className="font-semibold"
+            />
+
+            <span
+              className={`text-xs ${
+                stock
+                  ? "text-[#486B57]"
+                  : "text-[#9a5547]"
+              }`}
+            >
+              {stock
+                ? "In stock"
+                : "Sold out"}
+            </span>
+          </div>
+
+          {notice && (
+            <p
+              role="status"
+              className="mt-2 text-xs text-[#737A74]"
+            >
+              {notice}
+            </p>
+          )}
         </div>
-        <div className="mt-3 flex items-center justify-between">
-          <Price value={product.price} className="font-semibold" />
-          <span
-            className={`text-xs ${stock ? "text-[#486B57]" : "text-[#9a5547]"}`}
-          >
-            {stock ? "In stock" : "Sold out"}
-          </span>
-        </div>
-        {notice && (
-          <p role="status" className="mt-2 text-xs text-[#737A74]">
-            {notice}
-          </p>
-        )}
-      </div>
+      </Link>
     </article>
   );
 }
+
 export default ProductCard;

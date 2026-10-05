@@ -163,14 +163,14 @@ function AdminCategories() {
                       <button
                         onClick={() => start(category)}
                         aria-label={`Edit ${category.name}`}
-                        className="rounded-lg p-2 hover:bg-[#DCE7DE]"
+                        className="rounded-lg p-2 hover:bg-[#DCE7DE] cursor-pointer"
                       >
                         <Pencil size={16} />
                       </button>
                       <button
                         onClick={() => remove(category)}
                         aria-label={`Delete ${category.name}`}
-                        className="rounded-lg p-2 text-[#8b4033] hover:bg-[#f8e8e3]"
+                        className="rounded-lg p-2 text-[#8b4033] hover:bg-[#f8e8e3] cursor-pointer"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -183,7 +183,7 @@ function AdminCategories() {
             <AdminEmpty>No categories yet.</AdminEmpty>
           )}
         </AdminPanel>
-
+      <div className="sticky top-24 self-start">
         <AdminPanel className="h-fit p-5">
           <h2 className="font-semibold">
             {edit ? "Edit category" : "Add category"}
@@ -289,6 +289,7 @@ function AdminCategories() {
             </div>
           </form>
         </AdminPanel>
+      </div>
       </div>
     </>
   );

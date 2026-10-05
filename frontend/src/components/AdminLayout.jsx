@@ -16,6 +16,7 @@ import {
   Tag,
   TicketPercent,
   MessageSquareText,
+  ShieldCheck,
 } from "lucide-react";
 
 import useAuth from "../context/useAuth";
@@ -25,6 +26,7 @@ import { SiteBrandingContext } from "../context/site-branding-context";
 
 const nav = [
   [LayoutDashboard, "Overview", "/admin"],
+  [ShieldCheck, "Admin Management", "/admin/admins"],
   [Boxes, "Products", "/admin/products"],
   [Shapes, "Categories", "/admin/categories"],
   [Tag, "Brands", "/admin/brands"],
@@ -123,7 +125,7 @@ function AdminLayout() {
 
           <button
             onClick={signOut}
-            className="mt-3 text-sm font-medium text-[#486B57]"
+            className="mt-3 text-sm font-medium text-[#486B57] cursor-pointer"
           >
             Sign out
           </button>

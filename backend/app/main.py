@@ -22,7 +22,9 @@ from app.routers.admin_refunds import router as admin_refunds_router
 from app.routers.admin_inventory import router as admin_inventory_router
 from app.routers.site_settings import router as site_settings_router
 from app.routers.brands import router as brands_router
+from app.routers.admin_admins import router as admin_admins_router
 from app.routers import admin_reviews
+from app.routers.notifications import router as notifications_router
 
 app = FastAPI(title="TerraLens E-Commerce API")
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
@@ -56,7 +58,12 @@ app.include_router(admin_refunds_router)
 app.include_router(admin_inventory_router)
 app.include_router(site_settings_router)
 app.include_router(brands_router)
+app.include_router(admin_admins_router)
 app.include_router(admin_reviews.router)
+app.include_router(
+    notifications_router,
+    prefix="/api",
+)
 
 @app.get("/")
 def root():

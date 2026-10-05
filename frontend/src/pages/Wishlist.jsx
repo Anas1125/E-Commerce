@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { Heart, ShoppingBag, Trash2, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import api from "../services/api";
 import useAuth from "../context/useAuth";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 import {
   EmptyState,
@@ -12,6 +19,10 @@ import {
 } from "../components/Storefront";
 
 function Wishlist() {
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
+
   const { isAuthenticated, refreshCounts } = useAuth();
 
   const [items, setItems] = useState([]);
@@ -93,10 +104,6 @@ function Wishlist() {
     }
   };
 
-  /* =========================================================
-     ADD TO CART
-  ========================================================= */
-
   const addToCart = async (productId) => {
     try {
       await api.post("/cart/items", {
@@ -115,18 +122,15 @@ function Wishlist() {
     }
   };
 
-  /* =========================================================
-     RENDER
-  ========================================================= */
-
   return (
     <main className="min-h-screen bg-[#F1F3F6]">
+      <SEO
+        title="Wishlist"
+        description={`View and manage your saved products on ${siteName}.`}
+        noIndex
+      />
 
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-
-        {/* ===================================================
-            HEADER
-        =================================================== */}
 
         <section className="rounded-lg bg-white px-5 py-6 sm:px-7">
 
@@ -280,7 +284,7 @@ function Wishlist() {
 
                   const brand =
                     product?.brand ||
-                    "TerraLens";
+                    siteName;
 
                   return (
                     <article
@@ -292,9 +296,8 @@ function Wishlist() {
 
                       <Link
                         to={`/products/${item.product_id}`}
-                        className="relative block aspect-square overflow-hidden bg-[#F5F6F7]"
+                        className="relative block aspect-[4/3] overflow-hidden bg-[#F5F6F7]"
                       >
-
                         {item.image_url ? (
                           <img
                             src={item.image_url}
@@ -307,17 +310,17 @@ function Wishlist() {
                           </div>
                         )}
 
-                        {/* Wishlist badge */}
-
                         <button
                           type="button"
-                          onClick={() => remove(item.product_id)}
-                          className="absolute left-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-[#E0E0E0] bg-white text-[#2874F0] shadow-sm transition hover:bg-[#F1F3F6]"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            remove(item.product_id);
+                          }}
+                          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-[#E0E0E0] bg-white text-[#2874F0] shadow-sm transition hover:bg-[#F1F3F6] cursor-pointer"
                           aria-label={`Remove ${item.product_name} from wishlist`}
                         >
-                          <Heart size={18} fill="currentColor" />
+                          <Heart size={17} fill="currentColor" />
                         </button>
-
                       </Link>
 
 
@@ -351,16 +354,15 @@ function Wishlist() {
                           <button
                             type="button"
                             onClick={() =>
-                              addToCart(
-                                item.product_id,
-                              )
+                              addToCart(item.product_id)
                             }
-                            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-[#2874F0] px-3 text-xs font-semibold !text-white transition hover:bg-[#1F65D6] cursor-pointer"
+                            className="inline-flex h-10 flex-1 min-w-0 items-center justify-center gap-1.5 rounded-md bg-[#2874F0] px-2 text-[11px] font-semibold !text-white whitespace-nowrap transition hover:bg-[#1F65D6] cursor-pointer"
                           >
-                            <ShoppingBag size={15} />
-                            Add to cart
+                            <ShoppingBag size={14} className="shrink-0" />
+                            <span className="whitespace-nowrap">
+                              Add to cart
+                            </span>
                           </button>
-
                           <button
                             type="button"
                             aria-label={`Remove ${item.product_name} from wishlist`}

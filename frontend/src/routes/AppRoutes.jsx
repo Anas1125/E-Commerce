@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 
 import Home from "../pages/Home";
 import Shop from "../pages/Shop";
@@ -31,6 +31,7 @@ import AdminInventory from "../pages/AdminInventory";
 import AdminDiscounts from "../pages/AdminDiscounts";
 import AdminRefunds from "../pages/AdminRefunds";
 import AdminSiteSettings from "../pages/AdminSiteSettings";
+import AdminAdmins from "../pages/AdminAdmins";
 
 import MainLayout from "../layouts/MainLayout";
 import ScrollToTop from "../components/ScrollToTop";
@@ -39,7 +40,9 @@ import Terms from "../pages/Terms";
 import AdminLayout from "../components/AdminLayout";
 import ProtectedRoute from "../components/ProtectedRoute";
 import AdminRoute from "../components/AdminRoute";
-import NotFound from "../pages/NotFound";
+import ResetPassword from "../pages/ResetPassword";
+import ForgotPassword from "../pages/ForgotPassword";
+import NotFound from "../pages/NotFound"; 
 
 function AppRoutes() {
   const protect = (Page) => (
@@ -79,36 +82,14 @@ function AppRoutes() {
 
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route
+            path="/forgot-password"
+            element={<ForgotPassword />}
+          />
 
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
-          <Route
-            path="/forgot-password"
-            element={
-              <Navigate
-                to="/login"
-                replace
-                state={{
-                  message:
-                    "Password reset is unavailable because the backend does not yet provide reset endpoints.",
-                }}
-              />
-            }
-          />
-
-          <Route
-            path="/reset-password"
-            element={
-              <Navigate
-                to="/login"
-                replace
-                state={{
-                  message:
-                    "Password reset is unavailable because the backend does not yet provide reset endpoints.",
-                }}
-              />
-            }
-          />
 
           <Route path="/account" element={protect(Account)} />
           <Route path="/addresses" element={protect(Addresses)} />
@@ -125,7 +106,10 @@ function AppRoutes() {
         {/* Admin application */}
         <Route path="/admin" element={admin(AdminLayout)}>
           <Route index element={<AdminDashboard />} />
-
+          <Route
+            path="admins"
+            element={<AdminAdmins />}
+          />
           <Route path="products" element={<AdminProducts />} />
           <Route path="categories" element={<AdminCategories />} />
           <Route path="brands" element={<AdminBrands />} />

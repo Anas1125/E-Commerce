@@ -20,6 +20,7 @@ from app.models.user import User
 from app.schemas.order import OrderCreate
 from app.models.coupon import Coupon
 from app.models.coupon_usage import CouponUsage
+from app.services.notifications import send_admin_notification
 
 def generate_order_number() -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
@@ -370,6 +371,210 @@ def create_order(
         db.commit()
         db.refresh(order)
 
+        # Send admin notification after the order is successfully created.
+        items_html = ""
+
+        for item in order_items:
+            product = item["product"]
+
+            items_html += f"""
+                <tr>
+                    <td style="padding: 10px 0; border-bottom: 1px solid #E3E5DF;">
+                        {product.name}
+                    </td>
+
+                    <td style="padding: 10px 0; border-bottom: 1px solid #E3E5DF; text-align: center;">
+                        {item["quantity"]}
+                    </td>
+
+                    <td style="padding: 10px 0; border-bottom: 1px solid #E3E5DF; text-align: right;">
+                        ₹{item["final_price"] * item["quantity"]:,.2f}
+                    </td>
+                </tr>
+            """
+
+        customer_name = " ".join(
+            part
+            for part in [
+                user.first_name,
+                user.last_name,
+            ]
+            if part
+        ).strip()
+
+        if not customer_name:
+            customer_name = "Customer"
+
+        send_admin_notification(
+            subject=f"🛒 New TerraLens order — {order.order_number}",
+            html=f"""
+                <div
+                    style="
+                        font-family: Arial, sans-serif;
+                        max-width: 680px;
+                        margin: 0 auto;
+                        padding: 28px;
+                        color: #1F2521;
+                    "
+                >
+                    <div
+                        style="
+                            padding-bottom: 20px;
+                            border-bottom: 1px solid #E3E5DF;
+                        "
+                    >
+                        <h2
+                            style="
+                                margin: 0;
+                                color: #486B57;
+                            "
+                        >
+                            🛒 New TerraLens Order
+                        </h2>
+
+                        <p
+                            style="
+                                margin: 8px 0 0;
+                                color: #737A74;
+                            "
+                        >
+                            A new order has just been placed.
+                        </p>
+                    </div>
+
+                    <div style="padding: 22px 0;">
+                        <p>
+                            <strong>Order:</strong>
+                            {order.order_number}
+                        </p>
+
+                        <p>
+                            <strong>Customer:</strong>
+                            {customer_name}
+                        </p>
+
+                        <p>
+                            <strong>Email:</strong>
+                            {user.email}
+                        </p>
+
+                        <p>
+                            <strong>Phone:</strong>
+                            {user.phone_number}
+                        </p>
+
+                        <p>
+                            <strong>Payment:</strong>
+                            {order.payment_method.upper()}
+                        </p>
+                    </div>
+
+                    <h3
+                        style="
+                            margin-bottom: 10px;
+                            color: #1F2521;
+                        "
+                    >
+                        Order items
+                    </h3>
+
+                    <table
+                        style="
+                            width: 100%;
+                            border-collapse: collapse;
+                            font-size: 14px;
+                        "
+                    >
+                        <thead>
+                            <tr>
+                                <th
+                                    style="
+                                        padding: 10px 0;
+                                        text-align: left;
+                                        border-bottom: 2px solid #486B57;
+                                    "
+                                >
+                                    Product
+                                </th>
+
+                                <th
+                                    style="
+                                        padding: 10px 0;
+                                        text-align: center;
+                                        border-bottom: 2px solid #486B57;
+                                    "
+                                >
+                                    Qty
+                                </th>
+
+                                <th
+                                    style="
+                                        padding: 10px 0;
+                                        text-align: right;
+                                        border-bottom: 2px solid #486B57;
+                                    "
+                                >
+                                    Amount
+                                </th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {items_html}
+                        </tbody>
+                    </table>
+
+                    <div
+                        style="
+                            margin-top: 24px;
+                            padding: 18px;
+                            background: #F0F1EC;
+                            border-radius: 10px;
+                        "
+                    >
+                        <p style="margin: 0 0 8px;">
+                            <strong>Subtotal:</strong>
+                            ₹{order.subtotal:,.2f}
+                        </p>
+
+                        <p style="margin: 0 0 8px;">
+                            <strong>Discount:</strong>
+                            ₹{order.discount_amount:,.2f}
+                        </p>
+
+                        <p style="margin: 0 0 8px;">
+                            <strong>Shipping:</strong>
+                            ₹{order.shipping_fee:,.2f}
+                        </p>
+
+                        <p
+                            style="
+                                margin: 12px 0 0;
+                                padding-top: 12px;
+                                border-top: 1px solid #D9DDD7;
+                                font-size: 18px;
+                                color: #486B57;
+                            "
+                        >
+                            <strong>
+                                Total: ₹{order.total_amount:,.2f}
+                            </strong>
+                        </p>
+                    </div>
+
+                    <p
+                        style="
+                            margin-top: 24px;
+                            font-size: 13px;
+                            color: #737A74;
+                        "
+                    >
+                        This is an automatic TerraLens store notification.
+                    </p>
+                </div>
+            """,
+        )
+
         return order
 
     except Exception:
@@ -445,6 +650,109 @@ def cancel_order(
 
     db.commit()
     db.refresh(order)
+
+    customer_name = " ".join(
+        part
+        for part in [
+            user.first_name,
+            user.last_name,
+        ]
+        if part
+    ).strip()
+
+    if not customer_name:
+        customer_name = "Customer"
+
+    send_admin_notification(
+        subject=f"❌ TerraLens order cancelled — {order.order_number}",
+        html=f"""
+            <div
+                style="
+                    font-family: Arial, sans-serif;
+                    max-width: 680px;
+                    margin: 0 auto;
+                    padding: 28px;
+                    color: #1F2521;
+                "
+            >
+                <div
+                    style="
+                        padding-bottom: 20px;
+                        border-bottom: 1px solid #E3E5DF;
+                    "
+                >
+                    <h2
+                        style="
+                            margin: 0;
+                            color: #C62828;
+                        "
+                    >
+                        ❌ Order Cancelled
+                    </h2>
+
+                    <p
+                        style="
+                            margin: 8px 0 0;
+                            color: #737A74;
+                        "
+                    >
+                        A customer has cancelled an order.
+                    </p>
+                </div>
+
+                <div style="padding: 22px 0;">
+                    <p>
+                        <strong>Order:</strong>
+                        {order.order_number}
+                    </p>
+
+                    <p>
+                        <strong>Customer:</strong>
+                        {customer_name}
+                    </p>
+
+                    <p>
+                        <strong>Email:</strong>
+                        {user.email}
+                    </p>
+
+                    <p>
+                        <strong>Phone:</strong>
+                        {user.phone_number}
+                    </p>
+
+                    <p>
+                        <strong>Payment:</strong>
+                        {order.payment_method.upper()}
+                    </p>
+                </div>
+
+                <div
+                    style="
+                        margin-top: 10px;
+                        padding: 18px;
+                        background: #FFF1F1;
+                        border-radius: 10px;
+                    "
+                >
+                    <p style="margin: 0;">
+                        <strong>Order total:</strong>
+                        ₹{order.total_amount:,.2f}
+                    </p>
+                </div>
+
+                <p
+                    style="
+                        margin-top: 24px;
+                        font-size: 13px;
+                        color: #737A74;
+                    "
+                >
+                    The reserved inventory has been released.
+                </p>
+            </div>
+        """,
+    )
 
     return order
 

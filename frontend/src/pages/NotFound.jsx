@@ -1,8 +1,21 @@
 import { Link } from "react-router-dom";
+import { useContext } from "react";
 import { ArrowLeft, Home, Search } from "lucide-react";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 function NotFound() {
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
+
   return (
+    <>
+      <SEO
+        title="Page Not Found"
+        description={`The page you're looking for could not be found on ${siteName}.`}
+        noIndex
+      />
     <main className="min-h-screen bg-[#F1F3F6] px-4 py-16 sm:px-6">
       <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center">
         <div className="w-full rounded-md border border-[#E0E0E0] bg-white px-6 py-12 text-center sm:px-10 sm:py-16">
@@ -24,7 +37,7 @@ function NotFound() {
 
           <p className="mx-auto mt-4 max-w-lg text-sm leading-6 text-[#878787]">
             The page you're looking for doesn't exist or may have
-            been moved. Let's get you back to TerraLens.
+            been moved. Let's get you back to {siteName}.
           </p>
 
           {/* ACTIONS */}
@@ -65,6 +78,7 @@ function NotFound() {
         </div>
       </div>
     </main>
+    </>
   );
 }
 

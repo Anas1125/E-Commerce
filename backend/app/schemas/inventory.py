@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 class InventoryUpdate(BaseModel):
     quantity: int = Field(ge=0)
-
+    reserved_quantity: int = Field(ge=0)
 
 class InventoryResponse(BaseModel):
     id: int

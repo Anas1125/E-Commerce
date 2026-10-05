@@ -801,7 +801,7 @@ function Shop() {
         <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
 
           {/* Desktop filters */}
-          <aside className="hidden h-fit overflow-hidden rounded-lg bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] lg:block">
+          <aside className="sticky top-24 hidden h-fit max-h-[calc(100vh-7rem)] overflow-y-auto rounded-lg bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] lg:block">
             <div className="border-b border-[#EEEEEE] px-4 py-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -841,7 +841,7 @@ function Shop() {
               </div>
             ) : filtered.length ? (
 
-              <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {filtered.map((product) => (
                   <ProductCard
                     key={product.id}

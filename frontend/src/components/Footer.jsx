@@ -1,5 +1,10 @@
 import { Link } from "react-router-dom";
-import { ArrowUp, ArrowUpRight, Mail } from "lucide-react";
+import {
+  ArrowUp,
+  ArrowUpRight,
+  Mail,
+  Phone,
+} from "lucide-react";
 import BrandMark from "./BrandMark";
 
 const linkGroups = [
@@ -42,7 +47,7 @@ function Footer() {
     <footer className="mt-20 border-t border-[#E3E5DF] bg-white">
       <div className="mx-auto max-w-7xl px-6 py-14 sm:py-16">
         {/* Main footer */}
-        <div className="grid gap-12 lg:grid-cols-[1.5fr_1fr_1fr]">
+        <div className="grid gap-12 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
           {/* Brand */}
           <div>
             <BrandMark
@@ -54,20 +59,6 @@ function Footer() {
               Thoughtfully selected products for everyday living. Simple,
               useful and made to fit beautifully into your everyday spaces.
             </p>
-
-            {/* Email */}
-            <a
-              href="mailto:hello@terralens.com"
-              className="group mt-5 inline-flex items-center gap-2 text-sm font-medium text-[#486B57] transition-colors hover:text-[#385744]"
-            >
-              <Mail size={16} />
-              <span>hello@terralens.com</span>
-
-              <ArrowUpRight
-                size={14}
-                className="transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-              />
-            </a>
           </div>
 
           {/* Navigation */}
@@ -93,6 +84,40 @@ function Footer() {
               </ul>
             </nav>
           ))}
+
+          {/* Contact */}
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#1F2521]">
+              Contact us
+            </h3>
+
+            <div className="mt-5 space-y-4">
+              {/* Email */}
+              <a
+                href="mailto:hello@terralens.com"
+                className="group flex items-center gap-2 text-sm text-[#59645C] transition-colors hover:text-[#486B57]"
+              >
+                <Mail size={16} />
+
+                <span>hello@terralens.com</span>
+
+                <ArrowUpRight
+                  size={13}
+                  className="transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                />
+              </a>
+
+              {/* Phone */}
+              <a
+                href="tel:+91XXXXXXXXXX"
+                className="group flex items-center gap-2 text-sm text-[#59645C] transition-colors hover:text-[#486B57]"
+              >
+                <Phone size={16} />
+
+                <span>+91 XXXXX XXXXX</span>
+              </a>
+            </div>
+          </div>
         </div>
 
         {/* Trust strip */}
@@ -106,6 +131,7 @@ function Footer() {
               <p className="text-sm font-semibold text-[#1F2521]">
                 Thoughtfully selected
               </p>
+
               <p className="mt-0.5 text-xs text-[#737A74]">
                 Products worth bringing home
               </p>
@@ -121,6 +147,7 @@ function Footer() {
               <p className="text-sm font-semibold text-[#1F2521]">
                 Secure checkout
               </p>
+
               <p className="mt-0.5 text-xs text-[#737A74]">
                 Safe and simple shopping
               </p>
@@ -136,6 +163,7 @@ function Footer() {
               <p className="text-sm font-semibold text-[#1F2521]">
                 Made for everyday
               </p>
+
               <p className="mt-0.5 text-xs text-[#737A74]">
                 Useful products, considered well
               </p>
@@ -145,7 +173,9 @@ function Footer() {
 
         {/* Bottom bar */}
         <div className="mt-7 flex flex-col gap-4 text-xs text-[#737A74] sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} TerraLens. All rights reserved.</p>
+          <p>
+            © {new Date().getFullYear()} TerraLens. All rights reserved.
+          </p>
 
           <div className="flex items-center gap-5">
             <Link
@@ -162,14 +192,16 @@ function Footer() {
               Terms
             </Link>
 
-            <span className="text-[#B0B5B0]">Made with care.</span>
+            <span className="text-[#B0B5B0]">
+              Made with care.
+            </span>
           </div>
 
           {/* Back to top */}
           <button
             type="button"
             onClick={scrollToTop}
-            className="group inline-flex items-center gap-2 self-start rounded-full border border-[#E3E5DF] px-4 py-2.5 text-xs font-medium text-[#59645c] transition-all duration-200 hover:-translate-y-1 hover:border-[#486B57] hover:bg-[#DCE7DE] hover:text-[#385744] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/30 sm:self-auto cursor-pointer"
+            className="group inline-flex cursor-pointer items-center gap-2 self-start rounded-full border border-[#E3E5DF] px-4 py-2.5 text-xs font-medium text-[#59645c] transition-all duration-200 hover:-translate-y-1 hover:border-[#486B57] hover:bg-[#DCE7DE] hover:text-[#385744] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/30 sm:self-auto"
           >
             <span>Back to top</span>
 

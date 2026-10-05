@@ -182,7 +182,7 @@ function Reviews() {
           type="button"
           onClick={loadReviews}
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#D5DAD5] bg-white px-4 py-2.5 text-sm font-semibold text-[#486B57] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#D5DAD5] bg-white px-4 py-2.5 text-sm font-semibold text-[#486B57] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
         >
           <RefreshCw
             size={16}
@@ -360,7 +360,7 @@ function Reviews() {
                           "approved",
                         )
                       }
-                      className="inline-flex items-center gap-2 rounded-lg bg-[#385744] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2E4938] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg bg-[#385744] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2E4938] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
                     >
                       <Check size={15} />
                       Approve
@@ -377,7 +377,7 @@ function Reviews() {
                           "rejected",
                         )
                       }
-                      className="inline-flex items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-bold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-bold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
                     >
                       <X size={15} />
                       Reject
@@ -394,7 +394,7 @@ function Reviews() {
                           "pending",
                         )
                       }
-                      className="inline-flex items-center gap-2 rounded-lg border border-[#D5DAD5] bg-white px-4 py-2 text-sm font-semibold text-[#5C655E] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg border border-[#D5DAD5] bg-white px-4 py-2 text-sm font-semibold text-[#5C655E] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
                     >
                       <Clock3 size={15} />
                       Set pending
@@ -407,7 +407,7 @@ function Reviews() {
                     onClick={() =>
                       deleteReview(review.id)
                     }
-                    className="ml-auto inline-flex items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-semibold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="ml-auto inline-flex items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-semibold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
                   >
                     <Trash2 size={15} />
                     Delete

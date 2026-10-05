@@ -37,6 +37,7 @@ function Navbar() {
     refreshCounts();
   }, [refreshCounts, location.pathname]);
 
+
   const links = [
     ["Home", "/"],
     ["Shop", "/shop"],
@@ -96,6 +97,7 @@ function Navbar() {
       <Link
         to="/wishlist"
         aria-label="Wishlist"
+        onClick={() => setOpen(false)}
         className="icon-link relative"
       >
         <Heart size={19} />
@@ -111,6 +113,7 @@ function Navbar() {
       <Link
         to="/cart"
         aria-label="Cart"
+        onClick={() => setOpen(false)}
         className="icon-link relative"
       >
         <ShoppingBag size={19} />
@@ -130,6 +133,7 @@ function Navbar() {
             ? `Account for ${user?.first_name || "user"}`
             : "Sign in"
         }
+        onClick={() => setOpen(false)}
         className="icon-link"
       >
         <User size={19} />

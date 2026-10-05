@@ -98,13 +98,13 @@ function AdminLogin() {
               type="button"
               aria-label={showPassword ? "Hide password" : "Show password"}
               onClick={() => setShowPassword((visible) => !visible)}
-              className="absolute right-3 top-3 text-[#737A74] hover:text-[#486B57]"
+              className="absolute right-3 top-3 text-[#737A74] hover:text-[#486B57] cursor-pointer"
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </span>
         </label>
-        <button disabled={loading} className="button-primary mt-6 w-full">
+        <button disabled={loading} className="button-primary mt-6 w-full cursor-pointer">
           {loading ? "Signing in…" : "Sign in to admin"}
         </button>
       </form>

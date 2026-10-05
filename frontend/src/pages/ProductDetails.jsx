@@ -38,6 +38,9 @@ function ProductDetails() {
 
   const [reviewsError, setReviewsError] = useState("");
   const [reviews, setReviews] = useState([]);
+  const [reviewsPage, setReviewsPage] = useState(1);
+  const [reviewsTotal, setReviewsTotal] = useState(0);
+  const [reviewsTotalPages, setReviewsTotalPages] = useState(1);
 
   const [suggestedProducts, setSuggestedProducts] = useState([]);
   const [suggestedImages, setSuggestedImages] = useState({});
@@ -48,10 +51,6 @@ function ProductDetails() {
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState("");
-
-  /* --------------------------------
-     LOAD PRODUCT
-  -------------------------------- */
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -92,10 +91,6 @@ function ProductDetails() {
     fetchProduct();
   }, [id]);
 
-  /* --------------------------------
-     REVIEWS + SUGGESTIONS
-  -------------------------------- */
-
   useEffect(() => {
     if (!product) {
       return;
@@ -104,11 +99,19 @@ function ProductDetails() {
     const fetchReviews = async () => {
       try {
         const response = await api.get(
-          `/products/${product.id}/reviews`,
-        );
+        `/products/${product.id}/reviews`,
+        {
+          params: {
+            page: reviewsPage,
+            page_size: 5,
+          },
+        },
+      );
 
-        setReviews(response.data);
-        setReviewsError("");
+      setReviews(response.data.reviews);
+      setReviewsTotal(response.data.total);
+      setReviewsTotalPages(response.data.total_pages);
+      setReviewsError("");
       } catch (error) {
         console.error(
           "Failed to load reviews:",
@@ -267,11 +270,7 @@ function ProductDetails() {
       };
 
     loadProductExtras();
-  }, [product]);
-
-  /* --------------------------------
-     LOADING / NOT FOUND
-  -------------------------------- */
+  }, [product, reviewsPage]);
 
   if (loading) {
     return (
@@ -312,10 +311,6 @@ function ProductDetails() {
     );
   }
 
-  /* --------------------------------
-     PRODUCT DATA
-  -------------------------------- */
-
   const availableStock = Number(
     product.available_stock ??
       product.stock ??
@@ -339,10 +334,6 @@ function ProductDetails() {
       ),
     );
   };
-
-  /* --------------------------------
-     WISHLIST
-  -------------------------------- */
 
   const handleWishlist = async () => {
     if (!isAuthenticated) {
@@ -381,10 +372,6 @@ function ProductDetails() {
       );
     }
   };
-
-  /* --------------------------------
-     ADD TO CART
-  -------------------------------- */
 
   const handleAddToCart =
     async () => {
@@ -584,7 +571,7 @@ function ProductDetails() {
               </div>
 
               <span className="text-sm text-[#878787]">
-                {reviews.length} reviews
+                {reviewsTotal} {reviewsTotal === 1 ? "review" : "reviews"}
               </span>
             </div>
 
@@ -844,6 +831,35 @@ function ProductDetails() {
                 )}
               </div>
             )}
+            {reviewsTotalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-2 border-t border-[#F0F0F0] pt-5">
+                <button
+                  type="button"
+                  disabled={reviewsPage === 1}
+                  onClick={() =>
+                    setReviewsPage((page) => page - 1)
+                  }
+                  className="rounded-md border border-[#D0D0D0] px-4 py-2 text-sm font-semibold text-[#212121] transition hover:bg-[#F1F3F6] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+
+                <span className="px-3 text-sm font-semibold text-[#555]">
+                  {reviewsPage} / {reviewsTotalPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={reviewsPage === reviewsTotalPages}
+                  onClick={() =>
+                    setReviewsPage((page) => page + 1)
+                  }
+                  className="rounded-md border border-[#D0D0D0] px-4 py-2 text-sm font-semibold text-[#212121] transition hover:bg-[#F1F3F6] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         </section>
 
@@ -884,6 +900,7 @@ function ProductDetails() {
                           item.id
                         ]
                       }
+                      compact
                     />
                   ),
                 )}

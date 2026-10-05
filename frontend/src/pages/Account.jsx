@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -11,10 +11,15 @@ import {
 } from "lucide-react";
 
 import useAuth from "../context/useAuth";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 function Account() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
   const [busy, setBusy] = useState(false);
 
   const signOut = () => {
@@ -48,6 +53,13 @@ function Account() {
     `${user?.first_name || ""} ${user?.last_name || ""}`.trim();
 
   return (
+  <>
+    <SEO
+      title="Account"
+      description={`Manage your ${siteName} profile, orders, wishlist, and addresses.`}
+      noIndex
+    />
+
     <div className="min-h-screen bg-[#F1F3F6] pb-16">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
 
@@ -237,6 +249,7 @@ function Account() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

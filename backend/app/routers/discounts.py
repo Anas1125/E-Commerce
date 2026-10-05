@@ -91,3 +91,50 @@ def create_discount(
     db.refresh(discount)
 
     return discount
+
+@router.patch(
+    "/{discount_id}/status",
+    response_model=DiscountResponse,
+)
+def update_discount_status(
+    discount_id: int,
+    is_active: bool,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    discount = db.get(Discount, discount_id)
+
+    if discount is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Discount not found",
+        )
+
+    discount.is_active = is_active
+
+    db.commit()
+    db.refresh(discount)
+
+    return discount
+
+@router.delete(
+    "/{discount_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_discount(
+    discount_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    discount = db.get(Discount, discount_id)
+
+    if discount is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Discount not found",
+        )
+
+    db.delete(discount)
+    db.commit()
+
+    return None

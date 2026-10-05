@@ -683,10 +683,10 @@ function Home() {
 
       <section className="border-b border-[#E0E0E0] bg-white">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-3 items-stretch overflow-x-auto py-3 scrollbar-hide sm:grid-cols-5 lg:grid-cols-9">
+          <div className="grid grid-cols-3 items-stretch py-2 scrollbar-hide sm:grid-cols-5 lg:grid-cols-9">
             <Link
               to="/categories"
-              className="flex min-w-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-md px-2 py-2 text-center transition hover:bg-[#F5F5F5]"
+              className="flex min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1.5 text-center transition hover:bg-[#F5F5F5]"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EAF2FF] text-sm font-bold text-[#2874F0]">
                 All
@@ -707,7 +707,7 @@ function Home() {
                   <img
                     src={category.image_url}
                     alt=""
-                    className="h-10 w-10 rounded-full object-cover"
+                    className="h-9 w-9 rounded-full object-cover"
                   />
                 ) : (
                   <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F1F3F6] text-sm font-bold text-[#2874F0]">
@@ -717,7 +717,7 @@ function Home() {
                   </span>
                 )}
 
-                <span className="max-w-[110px] truncate text-xs font-medium text-[#212121]">
+                <span className="max-w-[105px] truncate text-[11px] font-medium text-[#212121]">
                   {category.name}
                 </span>
               </Link>
@@ -756,52 +756,181 @@ function Home() {
                     }
                   >
                     <Link
-                      to={`/products/${slide.product.id}`}
-                      onClick={() =>
-                        trackProductView(
-                          slide.product,
-                        )
-                      }
-                      className="block cursor-pointer"
-                    >
-                      <div className="relative min-h-[280px] overflow-hidden sm:min-h-[330px]">
-                        <img
-                          src={slide.image}
-                          alt={slide.product.name}
-                          className="absolute inset-0 h-full w-full object-cover"
-                        />
+                        to={`/products/${slide.product.id}`}
+                        onClick={() =>
+                          trackProductView(slide.product)
+                        }
+                        className="block cursor-pointer"
+                      >
+                        <div
+                          className="
+                            relative
+                            min-h-[450px]
+                            overflow-hidden
+                            bg-[#172337]
+                            sm:min-h-[330px]
+                          "
+                        >
+                          {/* Product image */}
+                          <img
+                            src={slide.image}
+                            alt={slide.product.name}
+                            className="
+                              absolute
+                              bottom-0
+                              left-0
+                              h-[44%]
+                              w-full
+                              object-contain
+                              object-bottom
+                              sm:left-auto
+                              sm:right-0
+                              sm:h-full
+                              sm:w-[55%]
+                              sm:p-5
+                              sm:object-right
+                              lg:w-[58%]
+                              lg:p-7
+                            "
+                          />
 
-                        <div className="absolute inset-0 bg-gradient-to-r from-[#172337]/95 via-[#172337]/70 to-[#172337]/10" />
+                          {/* Mobile image fade */}
+                          <div
+                            className="
+                              absolute
+                              inset-x-0
+                              bottom-0
+                              h-[48%]
+                              bg-gradient-to-t
+                              from-[#172337]/20
+                              via-[#172337]/50
+                              to-transparent
+                              sm:hidden
+                            "
+                          />
 
-                        <div className="relative flex min-h-[280px] max-w-2xl flex-col justify-center px-6 py-10 text-white sm:min-h-[330px] sm:px-10 lg:px-14">
-                          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#FFE500]">
-                            <Sparkles size={14} />
-                            TerraLens Deals
+                          {/* Desktop overlay */}
+                          <div
+                            className="
+                              absolute
+                              inset-0
+                              hidden
+                              bg-gradient-to-r
+                              from-[#172337]/95
+                              via-[#172337]/65
+                              to-transparent
+                              sm:block
+                            "
+                          />
+
+                          {/* Mobile content */}
+                          <div
+                            className="
+                              relative
+                              z-10
+                              flex
+                              min-h-[450px]
+                              flex-col
+                              px-6
+                              pt-12
+                              text-white
+                              sm:hidden
+                            "
+                          >
+                            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#FFE500]">
+                              <Sparkles size={13} />
+                              TerraLens Deals
+                            </div>
+
+                            <div className="mt-3 inline-flex w-fit rounded-md bg-[#FFE500] px-3 py-1.5 text-xs font-bold text-[#172337]">
+                              {discountText}
+                            </div>
+
+                            <h2 className="mt-3 max-w-[280px] text-[28px] font-bold leading-[1.05]">
+                              {slide.product.name}
+                            </h2>
+
+                            <p className="mt-3 max-w-[310px] text-[13px] leading-5 text-white/75">
+                              Grab this offer while it is available. Explore the product and check out the current deal.
+                            </p>
+
+                            <div className="mt-4">
+                              <span
+                                className="
+                                  inline-flex
+                                  items-center
+                                  gap-2
+                                  rounded-md
+                                  bg-[#FFE500]
+                                  px-5
+                                  py-3
+                                  text-sm
+                                  font-semibold
+                                  text-[#172337]
+                                "
+                              >
+                                Shop now
+                                <ArrowRight size={16} />
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="mt-4 inline-flex w-fit rounded-md bg-[#FFE500] px-3 py-1.5 text-xs font-bold text-[#172337]">
-                            {discountText}
-                          </div>
+                          {/* Desktop content */}
+                          <div
+                            className="
+                              relative
+                              z-10
+                              hidden
+                              min-h-[330px]
+                              max-w-2xl
+                              flex-col
+                              justify-center
+                              px-10
+                              py-10
+                              text-white
+                              sm:flex
+                              lg:px-14
+                            "
+                          >
+                            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#FFE500]">
+                              <Sparkles size={14} />
+                              TerraLens Deals
+                            </div>
 
-                          <h1 className="mt-4 max-w-xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
-                            {slide.product.name}
-                          </h1>
+                            <div className="mt-4 inline-flex w-fit rounded-md bg-[#FFE500] px-3 py-1.5 text-xs font-bold text-[#172337]">
+                              {discountText}
+                            </div>
 
-                          <p className="mt-3 max-w-lg text-sm leading-6 text-white/75 sm:text-base">
-                            Grab this offer while it is
-                            available. Explore the product
-                            and check out the current deal.
-                          </p>
+                            <h2 className="mt-4 max-w-xl text-4xl font-bold leading-tight lg:text-5xl">
+                              {slide.product.name}
+                            </h2>
 
-                          <div className="mt-6">
-                            <span className="inline-flex items-center gap-2 rounded-md bg-[#FFE500] px-6 py-3 text-sm font-semibold text-[#172337]">
-                              Shop now
-                              <ArrowRight size={16} />
-                            </span>
+                            <p className="mt-3 max-w-lg text-base leading-6 text-white/75">
+                              Grab this offer while it is available. Explore the product and check out the current deal.
+                            </p>
+
+                            <div className="mt-5">
+                              <span
+                                className="
+                                  inline-flex
+                                  items-center
+                                  gap-2
+                                  rounded-md
+                                  bg-[#FFE500]
+                                  px-6
+                                  py-3
+                                  text-sm
+                                  font-semibold
+                                  text-[#172337]
+                                "
+                              >
+                                Shop now
+                                <ArrowRight size={16} />
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </Link>
+                      </Link>
                   </div>
                 );
               })}
@@ -812,8 +941,31 @@ function Home() {
                     type="button"
                     aria-label="Previous deal"
                     onClick={previousSlide}
-                    className="absolute left-4 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/95 text-[#172337] shadow-md transition hover:bg-white"
-                  >
+                    className="
+                      absolute
+                      bottom-[82px]
+                      left-3
+                      z-20
+                      flex
+                      h-9
+                      w-9
+                      -translate-y-1/2
+                      cursor-pointer
+                      items-center
+                      justify-center
+                      rounded-full
+                      bg-white/95
+                      text-[#172337]
+                      shadow-md
+                      transition
+                      hover:bg-white
+                      sm:left-4
+                      sm:top-1/2
+                      sm:bottom-auto
+                      sm:h-10
+                      sm:w-10
+                      sm:translate-y-[-50%]
+                    ">
                     <ChevronLeft size={20} />
                   </button>
 
@@ -821,7 +973,31 @@ function Home() {
                     type="button"
                     aria-label="Next deal"
                     onClick={nextSlide}
-                    className="absolute right-4 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/95 text-[#172337] shadow-md transition hover:bg-white"
+                    className="
+                      absolute
+                      bottom-[82px]
+                      right-3
+                      z-20
+                      flex
+                      h-9
+                      w-9
+                      -translate-y-1/2
+                      cursor-pointer
+                      items-center
+                      justify-center
+                      rounded-full
+                      bg-white/95
+                      text-[#172337]
+                      shadow-md
+                      transition
+                      hover:bg-white
+                      sm:right-4
+                      sm:top-1/2
+                      sm:bottom-auto
+                      sm:h-10
+                      sm:w-10
+                      sm:translate-y-[-50%]
+                    "
                   >
                     <ChevronRight size={20} />
                   </button>

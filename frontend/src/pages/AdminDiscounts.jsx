@@ -30,6 +30,15 @@ function AdminDiscounts() {
     end_date: localDate(7),
     is_active: true,
   });
+  const blank = {
+    name: "",
+    discount_type: "percentage",
+    value: "",
+    product_id: "",
+    start_date: "",
+    end_date: "",
+    is_active: true,
+  };
   const [busy, setBusy] = useState(false);
   const { notice, notify, clear } = useAdminNotice();
   const load = useCallback(async () => {
@@ -63,7 +72,11 @@ function AdminDiscounts() {
     try {
       await api.post("/discounts/", payload);
       setOpen(false);
+      setForm({
+        ...blank,
+      });
       notify("Discount created.");
+
       load();
     } catch (e) {
       notify(e.response?.data?.detail || "Unable to create discount.", "error");
@@ -71,6 +84,60 @@ function AdminDiscounts() {
       setBusy(false);
     }
   };
+  const toggleDiscount = async (discount) => {
+    try {
+      await api.patch(
+        `/discounts/${discount.id}/status`,
+        null,
+        {
+          params: {
+            is_active: !discount.is_active,
+          },
+        },
+      );
+
+      notify(
+        discount.is_active
+          ? "Discount disabled."
+          : "Discount enabled.",
+      );
+
+      load();
+    } catch (e) {
+      notify(
+        e.response?.data?.detail ||
+          "Unable to update discount.",
+        "error",
+      );
+    }
+  };
+
+  const deleteDiscount = async (discount) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${discount.name}"?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await api.delete(
+        `/discounts/${discount.id}`,
+      );
+
+      notify("Discount deleted.");
+
+      load();
+    } catch (e) {
+      notify(
+        e.response?.data?.detail ||
+          "Unable to delete discount.",
+        "error",
+      );
+    }
+  };
+
   return (
     <>
       <AdminPageHeader
@@ -78,8 +145,15 @@ function AdminDiscounts() {
         description="Manage active product or storewide offers."
       >
         <button
-          className="button-primary inline-flex gap-2"
-          onClick={() => setOpen(true)}
+          type="button"
+          className="button-primary inline-flex gap-2 cursor-pointer"
+          onClick={() => {
+            setForm({
+              ...blank,
+            });
+
+            setOpen(true);
+          }}
         >
           <Plus size={16} />
           Create discount
@@ -97,6 +171,7 @@ function AdminDiscounts() {
               "Start",
               "End",
               "State",
+              "Action",
             ]}
           >
             {rows.map((d) => (
@@ -123,6 +198,25 @@ function AdminDiscounts() {
                 <td className="px-5 py-4">
                   <Badge>{d.is_active ? "active" : "inactive"}</Badge>
                 </td>
+                <td className="px-5 py-4">
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => toggleDiscount(d)}
+                      className="cursor-pointer text-sm font-semibold text-[#486B57] hover:text-[#2F513F]"
+                    >
+                      {d.is_active ? "Disable" : "Enable"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteDiscount(d)}
+                      className="cursor-pointer text-sm font-semibold text-[#9A5547] hover:text-[#7F4035]"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </AdminTable>
@@ -131,8 +225,8 @@ function AdminDiscounts() {
         )}
       </AdminPanel>
       <p className="mt-4 text-xs text-[#737A74]">
-        The current discount API supports create and read only; existing
-        discounts cannot be edited or deleted.
+        Discounts can be enabled or disabled at any time. Start and
+        end dates still control when an active discount is valid.
       </p>
       {open && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-4">
@@ -141,11 +235,11 @@ function AdminDiscounts() {
             className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-6 sm:p-8"
           >
             <div className="flex justify-between">
-              <h2 className="text-xl font-semibold">Create discount</h2>
+              <h2 className="text-xl font-semibold ">Create discount</h2>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="text-sm text-[#486B57]"
+                className="text-sm text-[#486B57] cursor-pointer"
               >
                 Close
               </button>
@@ -242,12 +336,12 @@ function AdminDiscounts() {
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
-                className="button-secondary"
+                className="button-secondary cursor-pointer"
                 onClick={() => setOpen(false)}
               >
                 Cancel
               </button>
-              <button disabled={busy} className="button-primary">
+              <button disabled={busy} className="button-primary cursor-pointer">
                 {busy ? "Creating…" : "Create discount"}
               </button>
             </div>

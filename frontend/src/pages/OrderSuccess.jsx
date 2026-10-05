@@ -4,17 +4,30 @@ import {
   ShieldCheck,
   ShoppingBag,
 } from "lucide-react";
+import { useContext } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { Price } from "../components/Storefront";
+import SEO from "../components/SEO";
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 function OrderSuccess() {
   const { state } = useLocation();
   const order = state?.order;
+  const { siteName = "TerraLens" } = useContext(
+    SiteBrandingContext,
+  );
 
   const isCod = order?.payment_method === "cod";
 
   return (
+  <>
+    <SEO
+      title="Order Confirmation"
+      description={`View your ${siteName} order confirmation and payment details.`}
+      noIndex
+    />
+
     <div className="min-h-screen bg-[#F1F3F6] px-4 py-12 sm:px-6">
       <div className="mx-auto flex min-h-[75vh] max-w-4xl items-center justify-center">
 
@@ -214,6 +227,7 @@ function OrderSuccess() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

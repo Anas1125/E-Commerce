@@ -211,7 +211,7 @@ function AdminBrands() {
                       <button
                         onClick={() => start(brand)}
                         aria-label={`Edit ${brand.name}`}
-                        className="rounded-lg p-2 hover:bg-[#F1F3F6]"
+                        className="rounded-lg p-2 hover:bg-[#F1F3F6] cursor-pointer"
                       >
                         <Pencil size={16} />
                       </button>
@@ -219,7 +219,7 @@ function AdminBrands() {
                       <button
                         onClick={() => remove(brand)}
                         aria-label={`Delete ${brand.name}`}
-                        className="rounded-lg p-2 text-[#D32F2F] hover:bg-[#FFEBEE]"
+                        className="rounded-lg p-2 text-[#D32F2F] hover:bg-[#FFEBEE] cursor-pointer"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -233,6 +233,7 @@ function AdminBrands() {
           )}
         </AdminPanel>
 
+      <div className="sticky top-24 self-start">
         <AdminPanel className="h-fit p-5">
           <h2 className="font-semibold">
             {edit ? "Edit brand" : "Add brand"}
@@ -330,7 +331,7 @@ function AdminBrands() {
             <div className="flex flex-wrap gap-2">
               <button
                 disabled={busy}
-                className="button-primary inline-flex items-center gap-2"
+                className="button-primary inline-flex items-center gap-2 cursor-pointer"
               >
                 {selectedFile && <Upload size={15} />}
 
@@ -359,6 +360,7 @@ function AdminBrands() {
             </div>
           </form>
         </AdminPanel>
+      </div>
       </div>
     </>
   );

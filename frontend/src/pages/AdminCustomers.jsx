@@ -104,12 +104,12 @@ function AdminCustomers() {
                   <button
                     aria-label={`View ${c.first_name}`}
                     onClick={() => view(c.id)}
-                    className="rounded-lg p-2 hover:bg-[#DCE7DE]"
+                    className="rounded-lg p-2 hover:bg-[#DCE7DE] cursor-pointer"
                   >
                     <Eye size={16} />
                   </button>
                   <button
-                    className="ml-1 text-sm font-medium text-[#486B57]"
+                    className="ml-1 text-sm font-medium text-[#486B57] cursor-pointer "
                     onClick={() => toggle(c)}
                   >
                     {c.is_active ? "Deactivate" : "Activate"}

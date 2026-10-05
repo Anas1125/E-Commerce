@@ -1,6 +1,11 @@
 import { useContext, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { UserPlus, ShieldCheck } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  UserPlus,
+  ShieldCheck,
+} from "lucide-react";
 import api from "../services/api";
 import SEO from "../components/SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
@@ -21,6 +26,8 @@ function Register() {
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const navigate = useNavigate();
 
@@ -210,44 +217,87 @@ function Register() {
                     >
                       {label}
 
-                      <input
-                        required={
-                          !name.includes(
-                            "last_name",
-                          )
-                        }
-                        minLength={
-                          name === "password"
-                            ? 8
-                            : undefined
-                        }
-                        type={type}
-                        name={name}
-                        autoComplete={
-                          name === "confirm"
-                            ? "new-password"
-                            : name
-                        }
-                        className="mt-2 block h-11 w-full rounded-md border border-[#D0D0D0] bg-white px-3 text-sm font-normal text-[#212121] outline-none transition placeholder:text-[#999] focus:border-[#2874F0] focus:ring-1 focus:ring-[#2874F0]"
-                        value={form[name]}
-                        onChange={change}
-                        placeholder={
-                          name === "first_name"
-                            ? "Enter your first name"
-                            : name ===
-                                "last_name"
-                              ? "Enter your last name"
-                              : name === "email"
-                                ? "you@example.com"
-                                : name ===
-                                    "phone_number"
-                                  ? "Enter phone number"
-                                  : name ===
-                                      "password"
-                                    ? "Minimum 8 characters"
-                                    : "Re-enter your password"
-                        }
-                      />
+                      <div className="relative mt-2">
+                        <input
+                          required={!name.includes("last_name")}
+                          minLength={
+                            name === "password"
+                              ? 8
+                              : undefined
+                          }
+                          type={
+                            name === "password"
+                              ? showPassword
+                                ? "text"
+                                : "password"
+                              : name === "confirm"
+                                ? showConfirmPassword
+                                  ? "text"
+                                  : "password"
+                                : type
+                          }
+                          name={name}
+                          autoComplete={
+                            name === "confirm"
+                              ? "new-password"
+                              : name
+                          }
+                          className="block h-11 w-full rounded-md border border-[#D0D0D0] bg-white px-3 pr-11 text-sm font-normal text-[#212121] outline-none transition placeholder:text-[#999] focus:border-[#2874F0] focus:ring-1 focus:ring-[#2874F0]"
+                          value={form[name]}
+                          onChange={change}
+                          placeholder={
+                            name === "first_name"
+                              ? "Enter your first name"
+                              : name === "last_name"
+                                ? "Enter your last name"
+                                : name === "email"
+                                  ? "you@example.com"
+                                  : name === "phone_number"
+                                    ? "Enter phone number"
+                                    : name === "password"
+                                      ? "Minimum 8 characters"
+                                      : "Re-enter your password"
+                          }
+                        />
+
+                        {(name === "password" ||
+                          name === "confirm") && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              name === "password"
+                                ? setShowPassword(
+                                    (current) => !current,
+                                  )
+                                : setShowConfirmPassword(
+                                    (current) => !current,
+                                  )
+                            }
+                            aria-label={
+                              name === "password"
+                                ? showPassword
+                                  ? "Hide password"
+                                  : "Show password"
+                                : showConfirmPassword
+                                  ? "Hide confirm password"
+                                  : "Show confirm password"
+                            }
+                            className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-[#878787] transition hover:text-[#2874F0]"
+                          >
+                            {name === "password" ? (
+                              showPassword ? (
+                                <EyeOff size={18} />
+                              ) : (
+                                <Eye size={18} />
+                              )
+                            ) : showConfirmPassword ? (
+                              <EyeOff size={18} />
+                            ) : (
+                              <Eye size={18} />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </label>
                   ),
                 )}
