@@ -37,7 +37,6 @@ function Navbar() {
     refreshCounts();
   }, [refreshCounts, location.pathname]);
 
-
   const links = [
     ["Home", "/"],
     ["Shop", "/shop"],
@@ -71,6 +70,7 @@ function Navbar() {
 
   const handleSearchClick = () => {
     setSearchOpen((current) => !current);
+    setOpen(false);
   };
 
   const icons = (
@@ -130,7 +130,9 @@ function Navbar() {
         to={accountPath}
         aria-label={
           isAuthenticated
-            ? `Account for ${user?.first_name || "user"}`
+            ? `Account for ${
+                user?.first_name || "user"
+              }`
             : "Sign in"
         }
         onClick={() => setOpen(false)}
@@ -179,21 +181,48 @@ function Navbar() {
           {icons}
         </div>
 
-        {/* MOBILE MENU BUTTON */}
-        <button
-          type="button"
-          className="cursor-pointer rounded-full p-2 hover:bg-[#DCE7DE] md:hidden"
-          aria-label={
-            open ? "Close menu" : "Open menu"
-          }
-          onClick={() => setOpen((current) => !current)}
-        >
-          {open ? (
-            <X size={21} />
-          ) : (
-            <Menu size={21} />
-          )}
-        </button>
+        {/* MOBILE HEADER ACTIONS */}
+        <div className="flex items-center gap-2 md:hidden">
+
+          {/* MOBILE SEARCH */}
+          <button
+            type="button"
+            aria-label={
+              searchOpen
+                ? "Close search"
+                : "Search"
+            }
+            onClick={handleSearchClick}
+            className="cursor-pointer rounded-full p-2 text-[#39453d] transition hover:bg-[#DCE7DE]"
+          >
+            {searchOpen ? (
+              <X size={21} />
+            ) : (
+              <Search size={21} />
+            )}
+          </button>
+
+          {/* MOBILE MENU */}
+          <button
+            type="button"
+            className="cursor-pointer rounded-full p-2 text-[#39453d] transition hover:bg-[#DCE7DE]"
+            aria-label={
+              open
+                ? "Close menu"
+                : "Open menu"
+            }
+            onClick={() => {
+              setOpen((current) => !current);
+              setSearchOpen(false);
+            }}
+          >
+            {open ? (
+              <X size={21} />
+            ) : (
+              <Menu size={21} />
+            )}
+          </button>
+        </div>
 
         {/* DESKTOP SEARCH */}
         {searchOpen && (
@@ -238,33 +267,47 @@ function Navbar() {
         )}
       </nav>
 
+      {/* MOBILE SEARCH BAR */}
+      {searchOpen && (
+        <form
+          onSubmit={submitSearch}
+          className="border-t border-[#E3E5DF] bg-[#F5F5F1] px-4 py-3 md:hidden"
+        >
+          <div className="relative">
+            <Search
+              size={17}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#878787]"
+            />
+
+            <input
+              autoFocus
+              type="text"
+              value={search}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
+              placeholder="Search products, brands and more"
+              autoComplete="off"
+              className="h-11 w-full rounded-lg border border-[#D8DDD8] bg-white pl-9 pr-10 text-sm text-[#212121] outline-none focus:border-[#486B57]"
+            />
+
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-[#878787] hover:bg-[#F1F3F6]"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        </form>
+      )}
+
       {/* MOBILE MENU */}
       {open && (
         <div className="border-t border-[#E3E5DF] bg-[#F5F5F1] px-6 py-4 md:hidden">
-
-          {/* MOBILE SEARCH */}
-          <form
-            onSubmit={submitSearch}
-            className="mb-4"
-          >
-            <div className="relative">
-              <Search
-                size={17}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#878787]"
-              />
-
-              <input
-                type="text"
-                value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
-                placeholder="Search products, brands and more"
-                autoComplete="off"
-                className="h-10 w-full rounded-lg border border-[#D8DDD8] bg-white pl-9 pr-4 text-sm outline-none focus:border-[#486B57]"
-              />
-            </div>
-          </form>
 
           {/* MOBILE LINKS */}
           <div className="flex flex-col">
@@ -282,7 +325,50 @@ function Navbar() {
 
           {/* MOBILE ICONS */}
           <div className="flex gap-5 border-t border-[#E3E5DF] pt-4">
-            {icons}
+            <Link
+              to="/wishlist"
+              aria-label="Wishlist"
+              onClick={() => setOpen(false)}
+              className="icon-link relative"
+            >
+              <Heart size={19} />
+
+              {wishlistCount > 0 && (
+                <span className="count-badge">
+                  {wishlistCount}
+                </span>
+              )}
+            </Link>
+
+            <Link
+              to="/cart"
+              aria-label="Cart"
+              onClick={() => setOpen(false)}
+              className="icon-link relative"
+            >
+              <ShoppingBag size={19} />
+
+              {cartCount > 0 && (
+                <span className="count-badge">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+
+            <Link
+              to={accountPath}
+              aria-label={
+                isAuthenticated
+                  ? `Account for ${
+                      user?.first_name || "user"
+                    }`
+                  : "Sign in"
+              }
+              onClick={() => setOpen(false)}
+              className="icon-link"
+            >
+              <User size={19} />
+            </Link>
           </div>
         </div>
       )}
