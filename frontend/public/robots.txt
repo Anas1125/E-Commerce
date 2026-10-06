@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+
+Disallow: /admin
+Disallow: /admin/
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /checkout
+Disallow: /order-success
+Disallow: /account
+Disallow: /addresses
+Disallow: /orders
+Disallow: /orders/
+Disallow: /cart
+Disallow: /wishlist
+
+Sitemap: https://e-commerce-3q5.pages.dev/sitemap.xml
