@@ -1070,10 +1070,6 @@ function Home() {
         </div>
       </section>
 
-      {/* =====================================================
-          TRUST STRIP
-      ===================================================== */}
-
       <section className="mx-auto max-w-[1400px] px-4 pt-4 sm:px-6 lg:px-8">
         <div className="grid overflow-hidden rounded-lg border border-[#E0E0E0] bg-white sm:grid-cols-3">
           <div className="flex items-center gap-3 border-b border-[#E0E0E0] px-5 py-4 sm:border-b-0 sm:border-r">
@@ -1126,10 +1122,6 @@ function Home() {
         </div>
       </section>
 
-      {/* =====================================================
-          TOP DEALS
-      ===================================================== */}
-
       <section className="mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-lg border border-[#E0E0E0] bg-white">
           <div className="flex items-center justify-between border-b border-[#EEEEEE] px-5 py-4 sm:px-6">
@@ -1179,10 +1171,6 @@ function Home() {
           )}
         </div>
       </section>
-
-      {/* =====================================================
-          SHOP BY CATEGORY
-      ===================================================== */}
 
       <section className="mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-lg border border-[#E0E0E0] bg-white">
@@ -1251,10 +1239,6 @@ function Home() {
         </div>
       </section>
 
-      {/* =====================================================
-          NEW ARRIVALS
-      ===================================================== */}
-
       <section className="mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-lg border border-[#E0E0E0] bg-white">
           <div className="flex items-center justify-between border-b border-[#EEEEEE] px-5 py-4 sm:px-6">
@@ -1305,10 +1289,6 @@ function Home() {
         </div>
       </section>
 
-      {/* =====================================================
-          PROMOTIONAL BANNER
-      ===================================================== */}
-
       <section className="mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 lg:px-8">
         <div className="relative overflow-hidden rounded-lg bg-[#172337] px-6 py-8 text-white sm:px-10 sm:py-10">
           <div className="absolute -right-20 -top-32 h-80 w-80 rounded-full border border-white/10" />
@@ -1340,10 +1320,6 @@ function Home() {
           </div>
         </div>
       </section>
-
-      {/* =====================================================
-          RECOMMENDED FOR YOU
-      ===================================================== */}
 
       <section className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-lg border border-[#E0E0E0] bg-white">
@@ -1389,10 +1365,6 @@ function Home() {
           )}
         </div>
       </section>
-
-      {/* =====================================================
-          STORE SUMMARY
-      ===================================================== */}
 
       <section className="mx-auto max-w-[1400px] px-4 pb-6 sm:px-6 lg:px-8">
         <div className="grid overflow-hidden rounded-lg border border-[#E0E0E0] bg-white sm:grid-cols-2 lg:grid-cols-4">

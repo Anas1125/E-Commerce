@@ -80,7 +80,13 @@ function AdminInventory() {
                 <td className="px-5 py-4">{r.quantity}</td>
                 <td className="px-5 py-4">{r.reserved_quantity}</td>
                 <td className="px-5 py-4">
-                  <Badge>{r.available_quantity}</Badge>
+                  {r.available_quantity <= 5 ? (
+                    <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-sm font-medium text-red-700">
+                      {r.available_quantity}
+                    </span>
+                  ) : (
+                    <Badge>{r.available_quantity}</Badge>
+                  )}
                 </td>
                 <td className="px-5 py-4">
                   <button

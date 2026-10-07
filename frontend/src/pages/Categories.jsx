@@ -137,13 +137,6 @@ function wordScore(
     return 100;
   }
 
-  /*
-   * Partial/prefix matching.
-   *
-   * Example:
-   * "mon" -> "monitor"
-   * "lap" -> "laptop"
-   */
   if (
     candidateWord.includes(
       queryWord,
@@ -167,12 +160,6 @@ function wordScore(
       candidateWord.length,
     );
 
-  /*
-   * One-character typo.
-   *
-   * monitor -> moniter
-   * laptop -> lapto
-   */
   if (
     maxLength >= 5 &&
     distance <= 1
@@ -180,9 +167,6 @@ function wordScore(
     return 65;
   }
 
-  /*
-   * Slightly larger typo for longer words.
-   */
   if (
     maxLength >= 7 &&
     distance <= 2
@@ -221,9 +205,6 @@ function getSearchScore(
 
   let score = 0;
 
-  /*
-   * Exact complete phrase.
-   */
   if (
     searchableText.includes(
       normalizedQuery,
@@ -263,10 +244,6 @@ function getSearchScore(
     }
   }
 
-  /*
-   * Reward searches where multiple
-   * words matched.
-   */
   if (matchedWords > 1) {
     score +=
       matchedWords * 20;
@@ -275,9 +252,6 @@ function getSearchScore(
   return score;
 }
 
-/* =========================================================
-   CATEGORY IMAGE
-========================================================= */
 
 function CategoryImage({
   category,
@@ -300,9 +274,6 @@ function CategoryImage({
   );
 }
 
-/* =========================================================
-   CATEGORY CARD
-========================================================= */
 
 function CategoryCard({
   category,
@@ -495,14 +466,6 @@ export function CategoryPage() {
       let result =
         data.products;
 
-      /*
-       * Smart search.
-       *
-       * Everything here comes from the
-       * actual product/category data.
-       *
-       * No hardcoded synonym groups.
-       */
       if (query) {
         result = data.products
           .map((product) => ({
@@ -945,10 +908,6 @@ function Categories() {
   const [searchImages, setSearchImages] =
     useState({});
 
-  /* =====================================================
-     LOAD DATA
-  ===================================================== */
-
   useEffect(() => {
     let alive = true;
 
@@ -992,10 +951,6 @@ function Categories() {
     };
   }, []);
 
-  /* =====================================================
-     CATEGORY PRODUCT COUNTS
-  ===================================================== */
-
   const categoryCounts =
     useMemo(() => {
       return products.reduce(
@@ -1016,24 +971,6 @@ function Categories() {
         {},
       );
     }, [products]);
-
-  /* =====================================================
-     BUILD SEARCH RESULTS
-
-     Search uses ONLY real catalog data.
-
-     Category fields:
-     - name
-     - slug
-     - description
-
-     Product fields:
-     - name
-     - brand
-     - description
-     - category name
-     - category slug
-  ===================================================== */
 
   const searchResults =
     useMemo(() => {
@@ -1099,15 +1036,6 @@ function Categories() {
                 product,
             );
 
-        /*
-         * Category appears when:
-         *
-         * A) category itself matches
-         *
-         * OR
-         *
-         * B) a product inside it matches
-         */
         if (
           categoryScore >= 20 ||
           matchingProducts.length
@@ -1122,11 +1050,6 @@ function Categories() {
         }
       }
 
-      /*
-       * Categories with actual product matches
-       * appear before categories that only matched
-       * their own category fields.
-       */
       results.sort((a, b) => {
         const aProductBoost =
           a.matchingProducts.length
@@ -1152,10 +1075,6 @@ function Categories() {
       products,
       search,
     ]);
-
-  /* =====================================================
-     FETCH IMAGES ONLY FOR SEARCH RESULTS
-  ===================================================== */
 
   useEffect(() => {
     let alive = true;
@@ -1254,10 +1173,6 @@ function Categories() {
     };
   }, [searchResults, search]);
 
-  /* =====================================================
-     FEATURED CATEGORIES
-  ===================================================== */
-
   const featuredCategories =
     useMemo(() => {
       return [...categories]
@@ -1275,10 +1190,6 @@ function Categories() {
       categories,
       categoryCounts,
     ]);
-
-  /* =====================================================
-     NORMAL CATEGORY SORT
-  ===================================================== */
 
   const sortedCategories =
     useMemo(() => {
@@ -1361,10 +1272,6 @@ function Categories() {
             </Link>
           </div>
 
-          {/* =================================================
-              SMART SEARCH
-          ================================================= */}
-
           {!loading &&
             !error && (
               <div className="relative mt-7 max-w-4xl">
@@ -1404,10 +1311,6 @@ function Categories() {
         </div>
       </section>
 
-      {/* =================================================
-          BODY
-      ================================================= */}
-
       {loading ? (
         <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6 lg:px-8">
           <LoadingState label="Loading categories..." />
@@ -1420,9 +1323,6 @@ function Categories() {
           />
         </div>
       ) : isSearching ? (
-        /* =================================================
-           SEARCH RESULTS
-        ================================================= */
 
         <section className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -1592,9 +1492,6 @@ function Categories() {
         </section>
       ) : (
         <>
-          {/* =================================================
-              FEATURED CATEGORIES
-          ================================================= */}
 
           {featuredCategories.length >
             0 && (
@@ -1639,10 +1536,6 @@ function Categories() {
               </div>
             </section>
           )}
-
-          {/* =================================================
-              ALL CATEGORIES
-          ================================================= */}
 
           <section
             id="all-categories"

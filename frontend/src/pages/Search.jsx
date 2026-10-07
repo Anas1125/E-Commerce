@@ -46,10 +46,6 @@ function Search() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  /* =========================================================
-     LOAD PRODUCTS + CATEGORIES
-  ========================================================= */
-
   useEffect(() => {
     let alive = true;
 
@@ -121,10 +117,6 @@ function Search() {
     };
   }, []);
 
-  /* =========================================================
-     CATEGORY MAP
-  ========================================================= */
-
   const categoryMap = useMemo(
     () =>
       Object.fromEntries(
@@ -139,10 +131,6 @@ function Search() {
       ),
     [categories],
   );
-
-  /* =========================================================
-     SEARCH RESULTS
-  ========================================================= */
 
   const results = useMemo(() => {
     const q = query.trim();
@@ -176,10 +164,6 @@ function Search() {
       25,
     );
 
-    /* =======================================================
-       SORT
-    ======================================================= */
-
     if (sort === "price-low") {
       return [...result].sort(
         (a, b) =>
@@ -203,14 +187,8 @@ function Search() {
         ),
       );
     }
-
-    /* Relevance is already handled by smartSearch */
     return result;
   }, [products, categoryMap, query, sort]);
-
-  /* =========================================================
-     SEARCH SUBMIT
-  ========================================================= */
 
   const submit = (event) => {
     event.preventDefault();
@@ -228,10 +206,6 @@ function Search() {
     setParams({});
   };
 
-  /* =========================================================
-     RENDER
-  ========================================================= */
-
   return (
     <main className="min-h-screen bg-[#F1F3F6]">
       <SEO
@@ -240,10 +214,6 @@ function Search() {
         noIndex
       />
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-
-        {/* ===================================================
-            SEARCH HEADER
-        =================================================== */}
 
         <section className="rounded-lg bg-white px-5 py-6 sm:px-7">
           <div className="flex flex-col gap-2">
@@ -303,10 +273,6 @@ function Search() {
           </form>
         </section>
 
-        {/* ===================================================
-            CONTENT
-        =================================================== */}
-
         <section className="mt-5">
           {loading ? (
             <div className="rounded-lg bg-white px-6 py-12">
@@ -350,11 +316,6 @@ function Search() {
             </div>
           ) : results.length ? (
             <>
-              {/* =================================================
-                  RESULTS
-              ================================================= */}
-
-              {/* Results toolbar */}
 
               <div className="rounded-lg bg-white px-5 py-4 sm:px-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -427,9 +388,6 @@ function Search() {
               </div>
             </>
           ) : (
-            /* =================================================
-               NO RESULTS
-            ================================================= */
 
             <div className="rounded-lg bg-white px-6 py-16 text-center">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EAF2FF] text-[#2874F0]">

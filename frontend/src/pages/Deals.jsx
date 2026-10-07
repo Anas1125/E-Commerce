@@ -39,10 +39,6 @@ function Deals() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  /* =========================================================
-     LOAD DEALS
-  ========================================================= */
-
   useEffect(() => {
     let alive = true;
 
@@ -122,10 +118,6 @@ function Deals() {
     };
   }, []);
 
-  /* =========================================================
-     DISCOUNT HELPERS
-  ========================================================= */
-
   const getDiscountAmount = (discount, product) => {
     if (!product) return 0;
 
@@ -178,10 +170,6 @@ function Deals() {
     );
   };
 
-  /* =========================================================
-     BUILD DEAL PRODUCTS
-  ========================================================= */
-
   const dealProducts = useMemo(() => {
     const result = [];
 
@@ -218,10 +206,6 @@ function Deals() {
 
     return result;
   }, [products, discounts]);
-
-  /* =========================================================
-     FILTER + SORT
-  ========================================================= */
 
   const filteredDeals = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -406,10 +390,6 @@ function Deals() {
         ) : (
           <>
 
-            {/* =================================================
-                DEAL BANNER
-            ================================================= */}
-
             <section className="relative mb-6 overflow-hidden rounded-lg bg-[#172337]">
 
               <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full bg-[#2874F0]/20 blur-3xl" />
@@ -452,11 +432,6 @@ function Deals() {
               </div>
 
             </section>
-
-
-            {/* =================================================
-                TOOLBAR
-            ================================================= */}
 
             <section className="mb-5 rounded-lg bg-white p-4 sm:p-5">
 
@@ -576,11 +551,6 @@ function Deals() {
               </div>
 
             </section>
-
-
-            {/* =================================================
-                DEAL GRID
-            ================================================= */}
 
             {filteredDeals.length ? (
               <section>
@@ -717,11 +687,6 @@ function Deals() {
 
               </div>
             )}
-
-
-            {/* =================================================
-                BOTTOM CTA
-            ================================================= */}
 
             <section className="mt-8 rounded-lg bg-white px-6 py-6 ring-1 ring-[#E0E0E0] sm:px-7">
 

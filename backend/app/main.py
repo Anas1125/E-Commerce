@@ -65,7 +65,7 @@ app.include_router(admin_reviews.router)
 app.include_router(
     notifications_router,
     prefix="/api",
-)
+)   
 
 @app.get("/")
 def root():

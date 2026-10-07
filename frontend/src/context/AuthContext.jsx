@@ -169,14 +169,7 @@ function AuthProvider({ children }) {
     },
     [activeRole],
   );
-
-  /*
-   * Update the currently logged-in user's data
-   * everywhere in the frontend.
-   *
-   * This is used after changing account information,
-   * such as phone number or email.
-   */
+  
   const updateUser = useCallback(
     (updatedUser) => {
       if (activeRole === "admin") {

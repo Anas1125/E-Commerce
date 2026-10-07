@@ -4,7 +4,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.inventory import Inventory
+from app.models.product import Product
 from app.models.user import User
+from app.services.notifications import (
+    send_low_stock_notification,
+    send_out_of_stock_notification,
+)
 from app.schemas.admin_inventory import (
     AdminInventoryResponse,
     AdminInventoryUpdate,
@@ -67,17 +72,58 @@ def update_inventory(
             detail="Quantity cannot be less than reserved quantity",
         )
 
+    product = db.scalar(
+        select(Product).where(
+            Product.id == product_id
+        )
+    )
+
+    if product is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found",
+        )
+
+    old_available_quantity = (
+        inventory.quantity - inventory.reserved_quantity
+    )
+
     inventory.quantity = data.quantity
+
+    new_available_quantity = (
+        inventory.quantity - inventory.reserved_quantity
+    )
 
     db.commit()
     db.refresh(inventory)
+
+    # Send inventory alert only when a threshold is crossed.
+    if (
+        old_available_quantity > 5
+        and new_available_quantity <= 5
+        and new_available_quantity > 0
+    ):
+        send_low_stock_notification(
+            product_name=product.name,
+            available_quantity=new_available_quantity,
+            quantity=inventory.quantity,
+            reserved_quantity=inventory.reserved_quantity,
+        )
+
+    elif (
+        old_available_quantity > 0
+        and new_available_quantity == 0
+    ):
+        send_out_of_stock_notification(
+            product_name=product.name,
+            quantity=inventory.quantity,
+            reserved_quantity=inventory.reserved_quantity,
+        )
 
     return {
         "id": inventory.id,
         "product_id": inventory.product_id,
         "quantity": inventory.quantity,
         "reserved_quantity": inventory.reserved_quantity,
-        "available_quantity": (
-            inventory.quantity - inventory.reserved_quantity
-        ),
+        "available_quantity": new_available_quantity,
     }

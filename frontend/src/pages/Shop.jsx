@@ -174,9 +174,6 @@ function Shop() {
       );
     }
 
-    // -----------------------------
-    // CATEGORY
-    // -----------------------------
     if (category !== "all") {
       results = results.filter(
         (product) =>
@@ -184,9 +181,6 @@ function Shop() {
       );
     }
 
-    // -----------------------------
-    // BRAND
-    // -----------------------------
     if (brand !== "all") {
       results = results.filter(
         (product) => {
@@ -200,9 +194,6 @@ function Shop() {
       );
     }
 
-    // -----------------------------
-    // MIN PRICE
-    // -----------------------------
     if (minPrice !== "") {
       results = results.filter(
         (product) =>
@@ -211,9 +202,6 @@ function Shop() {
       );
     }
 
-    // -----------------------------
-    // MAX PRICE
-    // -----------------------------
     if (maxPrice !== "") {
       results = results.filter(
         (product) =>
@@ -222,9 +210,6 @@ function Shop() {
       );
     }
 
-    // -----------------------------
-    // AVAILABILITY
-    // -----------------------------
     if (availability === "in") {
       results = results.filter(
         (product) => Number(product.stock) > 0,
@@ -237,9 +222,6 @@ function Shop() {
       );
     }
 
-    // -----------------------------
-    // SORT
-    // -----------------------------
     if (sort === "low") {
       results.sort(
         (a, b) =>
@@ -461,7 +443,7 @@ function Shop() {
         <button
           type="button"
           onClick={clearFilters}
-          className="flex w-full items-center justify-center gap-2 rounded-md border border-[#E0E0E0] bg-white py-2.5 text-sm font-medium text-[#555] transition hover:border-[#2874F0] hover:text-[#2874F0]"
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-[#E0E0E0] bg-white py-2.5 text-sm font-medium text-[#555] transition hover:border-[#2874F0] hover:text-[#2874F0] cursor-pointer"
         >
           <X size={14} />
           Clear all filters
@@ -748,7 +730,7 @@ function Shop() {
               )}
 
               {availability !== "all" && (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-[#EAF2FF] px-2.5 py-1.5 text-xs font-medium text-[#2874F0]">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-[#EAF2FF] px-2.5 py-1.5 text-xs font-medium text-[#2874F0] cursor-pointer">
                   {availability === "in"
                     ? "In stock"
                     : "Out of stock"}

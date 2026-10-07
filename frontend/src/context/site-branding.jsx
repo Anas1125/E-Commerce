@@ -57,8 +57,6 @@ export function SiteBrandingProvider({ children }) {
       heroImageUrl: settings.hero_image_url || null,
       footerLogoUrl: settings.footer_logo_url || null,
       faviconUrl,
-
-      // Website name now comes from Admin → Site Settings
       siteName: settings.site_name || "TerraLens",
 
       refreshBranding,
