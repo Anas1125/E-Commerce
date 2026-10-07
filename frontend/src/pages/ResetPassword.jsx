@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff, LockKeyhole, CheckCircle2 } from "lucide-react";
 
 import api from "../services/api";
 import BrandMark from "../components/BrandMark";
+
 
 function ResetPassword() {
   const navigate = useNavigate();
@@ -20,6 +21,37 @@ function ResetPassword() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  const [checkingToken, setCheckingToken] = useState(true);
+  const [tokenValid, setTokenValid] = useState(false);
+
+  useEffect(() => {
+    const validateToken = async () => {
+      if (!token) {
+        setTokenValid(false);
+        setCheckingToken(false);
+        return;
+      }
+
+      try {
+        await api.post("/auth/validate-reset-token", {
+          token,
+        });
+
+        setTokenValid(true);
+      } catch (requestError) {
+        setTokenValid(false);
+        setError(
+          requestError.response?.data?.detail ||
+            "This password reset link is invalid or expired.",
+        );
+      } finally {
+        setCheckingToken(false);
+      }
+    };
+
+    validateToken();
+  }, [token]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -74,7 +106,6 @@ function ResetPassword() {
             />
           </div>
 
-          <div className="flex justify-center"></div>
           <div className="w-full rounded-2xl border border-[#E3E5DF] bg-white p-8 text-center shadow-sm">
             <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#DCE7DE] text-[#486B57]">
               <CheckCircle2 size={28} />
@@ -101,6 +132,85 @@ function ResetPassword() {
       </div>
     );
   }
+
+if (checkingToken) {
+  return (
+    <div className="min-h-screen bg-[#F4F6F4] px-4 py-10">
+      <div className="mx-auto max-w-md">
+        <div className="mb-8 flex justify-center">
+          <BrandMark
+            alwaysShowName
+            fallbackLogo
+            className="gap-2"
+            imageClassName="h-9 w-9 shrink-0 object-contain"
+            nameClassName="text-xl font-semibold tracking-tight text-[#344d3e]"
+          />
+        </div>
+
+        <div className="rounded-2xl border border-[#E3E5DF] bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#EEF1EE] text-[#6B706C]">
+            <LockKeyhole size={26} />
+          </div>
+
+          <h1 className="text-2xl font-bold text-[#202521]">
+            Checking reset link
+          </h1>
+
+          <p className="mt-3 text-sm leading-6 text-[#6B706C]">
+            Please wait while we verify your password reset link.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+if (!tokenValid) {
+  return (
+    <div className="min-h-screen bg-[#F4F6F4] px-4 py-10">
+      <div className="mx-auto max-w-md">
+        <div className="mb-8 flex justify-center">
+          <BrandMark
+            alwaysShowName
+            fallbackLogo
+            className="gap-2"
+            imageClassName="h-9 w-9 shrink-0 object-contain"
+            nameClassName="text-xl font-semibold tracking-tight text-[#344d3e]"
+          />
+        </div>
+
+        <div className="rounded-2xl border border-[#E3E5DF] bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#FFF1F0] text-[#C62828]">
+            <LockKeyhole size={26} />
+          </div>
+
+          <h1 className="text-2xl font-bold text-[#202521]">
+            Reset link expired
+          </h1>
+
+          <p className="mt-3 text-sm leading-6 text-[#6B706C]">
+            {error ||
+              "This password reset link is no longer valid. Please request a new reset link."}
+          </p>
+
+          <Link
+            to="/forgot-password"
+            className="mt-6 block w-full rounded-lg bg-[#2878E8] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#1F68D0]"
+          >
+            Request a new reset link
+          </Link>
+
+          <Link
+            to="/login"
+            className="mt-4 block text-sm font-semibold text-[#486B57] hover:underline"
+          >
+            Back to sign in
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
 
   return (
   <div className="min-h-screen bg-[#F4F6F4] px-4 py-10">
@@ -135,7 +245,7 @@ function ResetPassword() {
             </div>
           )}
 
-          {!token ? (
+          {!tokenValid ? (
             <div>
               <p className="text-sm text-[#6B706C]">
                 This password reset link is missing or invalid.
