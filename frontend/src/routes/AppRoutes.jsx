@@ -82,11 +82,6 @@ function AppRoutes() {
 
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route
-            path="/forgot-password"
-            element={<ForgotPassword />}
-          />
 
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
@@ -99,6 +94,12 @@ function AppRoutes() {
           {/* Customer 404 */}
           <Route path="*" element={<NotFound />} />
         </Route>
+
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route
+          path="/forgot-password"
+          element={<ForgotPassword />}
+        />
 
         {/* Admin login */}
         <Route path="/admin/login" element={<AdminLogin />} />
