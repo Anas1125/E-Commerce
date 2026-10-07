@@ -484,7 +484,7 @@ function AdminSiteSettings() {
                         <button
                           type="button"
                           disabled={busyNow}
-                          className="inline-flex items-center gap-2 rounded-full border border-[#E3E5DF] px-4 py-2 text-sm text-[#8b4033] hover:bg-[#f8e8e3]"
+                          className="inline-flex items-center gap-2 rounded-full border border-[#E3E5DF] px-4 py-2 text-sm text-[#8b4033] hover:bg-[#f8e8e3] cursor-pointer"
                           onClick={() =>
                             remove(asset)
                           }
