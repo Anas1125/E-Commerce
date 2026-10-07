@@ -190,6 +190,9 @@ class TokenResponse(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
+class ValidateResetTokenRequest(BaseModel):
+    token: str
+
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
@@ -428,4 +431,43 @@ def reset_password(
 
     return {
         "message": "Password has been reset successfully.",
+    }
+
+@router.post(
+    "/validate-reset-token",
+)
+def validate_reset_token(
+    request: ValidateResetTokenRequest,
+    db: Session = Depends(get_db),
+):
+    token_hash = hashlib.sha256(
+        request.token.encode()
+    ).hexdigest()
+
+    reset_token = db.scalar(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == token_hash,
+        )
+    )
+
+    if not reset_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset link.",
+        )
+
+    if reset_token.used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This password reset link has already been used.",
+        )
+
+    if reset_token.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This password reset link has expired.",
+        )
+
+    return {
+        "valid": True,
     }
