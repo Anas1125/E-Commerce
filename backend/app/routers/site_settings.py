@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
+import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
@@ -107,7 +108,16 @@ async def upload_branding_asset(
         destination.write_bytes(contents)
         settings = get_or_create_settings(db)
         old_url = getattr(settings, field_name)
-        setattr(settings, field_name, f"{str(request.base_url).rstrip('/')}/uploads/branding/{filename}")
+        public_base_url = os.getenv(
+            "PUBLIC_API_URL",
+            str(request.base_url).rstrip("/"),
+        )
+
+        setattr(
+            settings,
+            field_name,
+            f"{public_base_url.rstrip('/')}/uploads/branding/{filename}",
+        )
         db.commit()
         db.refresh(settings)
     except Exception:
