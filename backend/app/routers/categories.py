@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
+import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
@@ -53,8 +54,17 @@ async def upload_category_image(
     filename = f"{uuid4().hex}{extension}"
     (CATEGORY_UPLOADS_DIR / filename).write_bytes(contents)
     await file.close()
-    return {"image_url": f"{str(request.base_url).rstrip('/')}/uploads/categories/{filename}"}
+    public_base_url = os.getenv(
+        "PUBLIC_API_URL",
+        str(request.base_url).rstrip("/"),
+    )
 
+    return {
+        "image_url": (
+            f"{public_base_url.rstrip('/')}"
+            f"/uploads/categories/{filename}"
+        )
+    }
 
 @router.get("/", response_model=list[CategoryResponse])
 def get_categories(

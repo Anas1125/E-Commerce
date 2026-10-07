@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
+import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
@@ -198,9 +199,13 @@ async def upload_product_image(
     filename = f"{uuid4().hex}{extension}"
     destination = PRODUCT_UPLOADS_DIR / filename
     relative_url = f"/uploads/products/{filename}"
+    public_base_url = os.getenv(
+        "PUBLIC_API_URL",
+        str(request.base_url).rstrip("/"),
+    )
     image = ProductImage(
         product_id=product_id,
-        image_url=f"{str(request.base_url).rstrip('/')}{relative_url}",
+        image_url=f"{public_base_url.rstrip('/')}{relative_url}",
         is_primary=is_primary,
         display_order=display_order,
     )
