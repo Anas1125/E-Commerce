@@ -4,8 +4,15 @@ import {
   useEffect,
   useState,
 } from "react";
-import { Heart, ShoppingBag, Trash2, ArrowRight } from "lucide-react";
-import { Link } from "react-router-dom";
+
+import {
+  Heart,
+  ShoppingBag,
+  Trash2,
+  ArrowRight,
+} from "lucide-react";
+
+import { Link, useNavigate } from "react-router-dom";
 
 import api from "../services/api";
 import useAuth from "../context/useAuth";
@@ -25,14 +32,12 @@ function Wishlist() {
 
   const { isAuthenticated, refreshCounts } = useAuth();
 
+  const navigate = useNavigate();
+
   const [items, setItems] = useState([]);
   const [products, setProducts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  /* =========================================================
-     LOAD WISHLIST
-  ========================================================= */
 
   const load = useCallback(async () => {
     if (!isAuthenticated) {
@@ -78,10 +83,6 @@ function Wishlist() {
     };
   }, [load]);
 
-  /* =========================================================
-     REMOVE FROM WISHLIST
-  ========================================================= */
-
   const remove = async (productId) => {
     try {
       await api.delete(`/wishlist/${productId}`);
@@ -105,6 +106,19 @@ function Wishlist() {
   };
 
   const addToCart = async (productId) => {
+    const product = products[productId];
+
+    const availableStock = Number(
+      product?.available_stock ??
+        product?.stock ??
+        0,
+    );
+
+    if (availableStock <= 0) {
+      setError("This product is currently out of stock.");
+      return;
+    }
+
     try {
       await api.post("/cart/items", {
         product_id: productId,
@@ -119,6 +133,20 @@ function Wishlist() {
         requestError.response?.data?.detail ||
           "Unable to add this item to cart.",
       );
+    }
+  };
+
+  const openProduct = (productId) => {
+    navigate(`/products/${productId}`);
+  };
+
+  const handleCardKeyDown = (event, productId) => {
+    if (
+      event.key === "Enter" ||
+      event.key === " "
+    ) {
+      event.preventDefault();
+      openProduct(productId);
     }
   };
 
@@ -159,13 +187,14 @@ function Wishlist() {
                   come back to.
                 </p>
               </div>
-              
+
             </div>
 
             {!loading &&
               isAuthenticated &&
               items.length > 0 && (
                 <div className="flex items-center gap-3">
+
                   <Link
                     to="/checkout"
                     className="inline-flex items-center gap-2 rounded-md bg-[#2874F0] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#1f65d6]"
@@ -175,9 +204,15 @@ function Wishlist() {
                   </Link>
 
                   <div className="rounded-md border border-[#E0E0E0] bg-white px-6 py-3 text-center">
-                    <p className="text-xl font-bold text-[#212121]">{items.length}</p>
-                    <p className="text-xs text-[#878787]">saved items</p>
+                    <p className="text-xl font-bold text-[#212121]">
+                      {items.length}
+                    </p>
+
+                    <p className="text-xs text-[#878787]">
+                      saved items
+                    </p>
                   </div>
+
                 </div>
               )}
 
@@ -185,17 +220,14 @@ function Wishlist() {
 
         </section>
 
-
-        {/* ===================================================
-            CONTENT
-        =================================================== */}
-
         <section className="mt-5">
 
           {loading ? (
+
             <div className="rounded-lg bg-white px-6 py-12">
               <LoadingState label="Loading your wishlist..." />
             </div>
+
           ) : !isAuthenticated ? (
 
             <div className="rounded-lg bg-white px-6 py-16 text-center">
@@ -273,12 +305,12 @@ function Wishlist() {
                 </div>
               )}
 
-
               {/* Wishlist grid */}
 
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
 
                 {items.map((item) => {
+
                   const product =
                     products[item.product_id];
 
@@ -286,43 +318,77 @@ function Wishlist() {
                     product?.brand ||
                     siteName;
 
+                  const availableStock =
+                    Number(
+                      product?.available_stock ??
+                        product?.stock ??
+                        0,
+                    );
+
+                  const outOfStock =
+                    availableStock <= 0;
+
                   return (
+
                     <article
                       key={item.product_id}
-                      className="group overflow-hidden rounded-lg border border-[#E0E0E0] bg-white transition duration-200 hover:-translate-y-0.5 hover:border-[#C5D6EA] hover:shadow-md"
+                      role="link"
+                      tabIndex={0}
+                      onClick={() =>
+                        openProduct(
+                          item.product_id,
+                        )
+                      }
+                      onKeyDown={(event) =>
+                        handleCardKeyDown(
+                          event,
+                          item.product_id,
+                        )
+                      }
+                      className="group cursor-pointer overflow-hidden rounded-lg border border-[#E0E0E0] bg-white transition duration-200 hover:-translate-y-0.5 hover:border-[#C5D6EA] hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#2874F0] focus:ring-offset-1"
                     >
 
                       {/* Image */}
 
-                      <Link
-                        to={`/products/${item.product_id}`}
-                        className="relative block aspect-[4/3] overflow-hidden bg-[#F5F6F7]"
-                      >
+                      <div className="relative block aspect-[4/3] overflow-hidden bg-[#F5F6F7]">
+
                         {item.image_url ? (
+
                           <img
                             src={item.image_url}
                             alt={item.product_name}
                             className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                           />
+
                         ) : (
+
                           <div className="flex h-full w-full items-center justify-center text-[#2874F0]">
                             <ShoppingBag size={32} />
                           </div>
+
                         )}
+
+                        {/* Wishlist button */}
 
                         <button
                           type="button"
                           onClick={(event) => {
                             event.preventDefault();
-                            remove(item.product_id);
+                            event.stopPropagation();
+                            remove(
+                              item.product_id,
+                            );
                           }}
                           className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-[#E0E0E0] bg-white text-[#2874F0] shadow-sm transition hover:bg-[#F1F3F6] cursor-pointer"
                           aria-label={`Remove ${item.product_name} from wishlist`}
                         >
-                          <Heart size={17} fill="currentColor" />
+                          <Heart
+                            size={17}
+                            fill="currentColor"
+                          />
                         </button>
-                      </Link>
 
+                      </div>
 
                       {/* Details */}
 
@@ -332,12 +398,9 @@ function Wishlist() {
                           {brand}
                         </p>
 
-                        <Link
-                          to={`/products/${item.product_id}`}
-                          className="mt-1 block min-h-[40px] text-sm font-semibold leading-5 text-[#212121] transition hover:text-[#2874F0]"
-                        >
+                        <div className="mt-1 min-h-[40px] text-sm font-semibold leading-5 text-[#212121]">
                           {item.product_name}
-                        </Link>
+                        </div>
 
                         <div className="mt-3">
                           <Price
@@ -346,31 +409,53 @@ function Wishlist() {
                           />
                         </div>
 
-
                         {/* Actions */}
 
                         <div className="mt-4 flex gap-2">
 
                           <button
                             type="button"
-                            onClick={() =>
-                              addToCart(item.product_id)
-                            }
-                            className="inline-flex h-10 flex-1 min-w-0 items-center justify-center gap-1.5 rounded-md bg-[#2874F0] px-2 text-[11px] font-semibold !text-white whitespace-nowrap transition hover:bg-[#1F65D6] cursor-pointer"
+                            disabled={outOfStock}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+
+                              if (!outOfStock) {
+                                addToCart(
+                                  item.product_id,
+                                );
+                              }
+                            }}
+                            className={`inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-semibold whitespace-nowrap transition ${
+                              outOfStock
+                                ? "cursor-not-allowed bg-[#E0E0E0] text-[#878787]"
+                                : "cursor-pointer bg-[#2874F0] !text-white hover:bg-[#1F65D6]"
+                            }`}
                           >
-                            <ShoppingBag size={14} className="shrink-0" />
+
+                            <ShoppingBag
+                              size={14}
+                              className="shrink-0"
+                            />
+
                             <span className="whitespace-nowrap">
-                              Add to cart
+                              {outOfStock
+                                ? "Out of stock"
+                                : "Add to cart"}
                             </span>
+
                           </button>
+
                           <button
                             type="button"
                             aria-label={`Remove ${item.product_name} from wishlist`}
-                            onClick={() =>
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
                               remove(
                                 item.product_id,
-                              )
-                            }
+                              );
+                            }}
                             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#E0E0E0] bg-white text-[#878787] transition hover:border-[#E0E0E0] hover:bg-[#FFF5F5] hover:text-[#D32F2F] cursor-pointer"
                           >
                             <Trash2 size={16} />
@@ -381,11 +466,11 @@ function Wishlist() {
                       </div>
 
                     </article>
+
                   );
                 })}
 
               </div>
-
 
               {/* Bottom shop link */}
 
@@ -419,13 +504,11 @@ function Wishlist() {
         </section>
 
       </div>
+
     </main>
   );
 }
 
-
-/* Small arrow component so we don't add another
-   lucide import just for one icon. */
 function ArrowRightIcon() {
   return (
     <svg

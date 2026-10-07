@@ -33,6 +33,22 @@ import {
   Price,
 } from "../components/Storefront";
 
+const loadRazorpay = () =>
+  new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+
+    const script = document.createElement("script");
+
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+
+    document.body.appendChild(script);
+  });
+
 function Checkout() {
   const {
     user,
@@ -279,21 +295,14 @@ function Checkout() {
     }
   };
 
-  const placeCodOrder = async () => {
+  const placeOrder = async () => {
     if (!selected) {
       setError("Select a delivery address.");
       setStep(1);
       return;
     }
 
-    if (paymentMethod !== "cod") {
-      setError(
-        "Online payments are currently unavailable because no payment gateway is configured. Select Cash on Delivery to continue.",
-      );
-      return;
-    }
-
-    if (!confirmedCod) {
+    if (paymentMethod === "cod" && !confirmedCod) {
       setError(
         "Confirm that you will pay for the order on delivery.",
       );
@@ -307,20 +316,137 @@ function Checkout() {
       const { data: order } = await api.post("/orders/", {
         shipping_address_id: Number(selected),
         coupon_code: appliedCoupon?.code || null,
-        payment_method: "cod",
+        payment_method: paymentMethod,
       });
 
-      await refreshCounts();
+      if (paymentMethod === "cod") {
+        await refreshCounts();
 
-      navigate("/order-success", {
-        state: { order },
+        navigate("/order-success", {
+          state: { order },
+        });
+
+        return;
+      }
+
+      const razorpayLoaded = await loadRazorpay();
+
+      if (!razorpayLoaded) {
+        throw new Error(
+          "Unable to load Razorpay Checkout. Please try again.",
+        );
+      }
+
+      const { data: payment } = await api.post("/payments/", {
+        order_id: order.id,
       });
+
+      const razorpayOptions = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        amount: Math.round(
+          Number(payment.amount) * 100,
+        ),
+        currency: payment.currency,
+        name: siteName,
+        description: `Order ${order.order_number}`,
+        order_id: payment.gateway_order_id,
+        prefill: {
+          name: [
+            user?.first_name,
+            user?.last_name,
+          ]
+            .filter(Boolean)
+            .join(" "),
+          email: user?.email || "",
+          contact: user?.phone_number || "",
+        },
+        theme: {
+          color: "#2874F0",
+        },
+        method: {
+          upi: true,
+        },
+        handler: async (response) => {
+          try {
+            setBusy(true);
+            setError("");
+            await api.post("/payments/complete", {
+              payment_id: payment.id,
+              gateway_order_id:
+                response.razorpay_order_id,
+              gateway_payment_id:
+                response.razorpay_payment_id,
+              gateway_signature:
+                response.razorpay_signature,
+              payment_method: "upi",
+            });
+            await refreshCounts();
+            navigate("/order-success", {
+              state: {
+                order: {
+                  ...order,
+                  order_status: "confirmed",
+                  payment_status: "paid",
+                },
+              },
+            });
+          } catch (verificationError) {
+            setError(
+              verificationError.response?.data?.detail ||
+                "Payment was received, but verification failed. Please contact support.",
+            );
+          } finally {
+            setBusy(false);
+          }
+        },
+        modal: {
+          ondismiss: async () => {
+            try {
+              await api.post("/payments/fail", {
+                payment_id: payment.id,
+              });
+            } catch {
+              // Payment cancellation is handled silently here.
+            }
+            setBusy(false);
+            setError(
+              "UPI payment was cancelled. Your order was not completed.",
+            );
+          },
+        },
+      }; 
+
+      const razorpay = new window.Razorpay(
+        razorpayOptions,
+      );
+
+      razorpay.on(
+        "payment.failed",
+        async () => {
+          try {
+            await api.post("/payments/fail", {
+              payment_id: payment.id,
+            });
+          } catch {
+            // The backend failure endpoint is best-effort here.
+          }
+
+          setBusy(false);
+
+          setError(
+            "UPI payment failed. Please try again.",
+          );
+        },
+      );
+
+      razorpay.open();
     } catch (requestError) {
       setError(
         requestError.response?.data?.detail ||
-          "We couldn't place this order. Check stock, address and coupon details.",
+          requestError.message ||
+          "We couldn't start the payment. Please try again.",
       );
-    } finally {
+
       setBusy(false);
     }
   };
@@ -888,9 +1014,8 @@ function Checkout() {
                         {[
                           ["cod", "Cash on Delivery"],
                           ["upi", "UPI"],
-                          ["card", "Credit / Debit Card"],
                         ].map(([value, label]) => {
-                          const disabled = value !== "cod";
+                          const disabled = false;
 
                           return (
                             <label
@@ -927,54 +1052,48 @@ function Checkout() {
                                   {label}
                                 </span>
                               </div>
-
-                              {disabled && (
-                                <span className="text-xs text-[#878787]">
-                                  Coming soon
-                                </span>
-                              )}
                             </label>
                           );
                         })}
                       </div>
 
-                      <div className="mt-4 rounded-md border border-[#C8E6C9] bg-[#F1F8F2] p-4">
-                        <div className="flex gap-3">
-                          <ShieldCheck
-                            size={20}
-                            className="mt-0.5 text-[#388E3C]"
-                          />
+                      {paymentMethod === "cod" && (
+                        <div className="mt-4 rounded-md border border-[#C8E6C9] bg-[#F1F8F2] p-4">
+                          <div className="flex gap-3">
+                            <ShieldCheck
+                              size={20}
+                              className="mt-0.5 text-[#388E3C]"
+                            />
 
-                          <div className="text-sm">
-                            <p className="font-semibold text-[#2E7D32]">
-                              Cash on Delivery
-                            </p>
+                            <div className="text-sm">
+                              <p className="font-semibold text-[#2E7D32]">
+                                Cash on Delivery
+                              </p>
 
-                            <p className="mt-1 leading-5 text-[#555]">
-                              Pay the final order amount when your
-                              order is delivered.
-                            </p>
+                              <p className="mt-1 leading-5 text-[#555]">
+                                Pay the final order amount when your
+                                order is delivered.
+                              </p>
 
-                            <label className="mt-3 flex cursor-pointer items-start gap-2">
-                              <input
-                                type="checkbox"
-                                checked={confirmedCod}
-                                onChange={(event) =>
-                                  setConfirmedCod(
-                                    event.target.checked,
-                                  )
-                                }
-                                className="mt-0.5 cursor-pointer"
-                              />
+                              <label className="mt-3 flex cursor-pointer items-start gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={confirmedCod}
+                                  onChange={(event) =>
+                                    setConfirmedCod(event.target.checked)
+                                  }
+                                  className="mt-0.5 cursor-pointer"
+                                />
 
-                              <span className="text-sm text-[#444]">
-                                I'll pay the order total when it
-                                is delivered.
-                              </span>
-                            </label>
+                                <span className="text-sm text-[#444]">
+                                  I'll pay the order total when it
+                                  is delivered.
+                                </span>
+                              </label>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </section>
 
@@ -1184,17 +1303,18 @@ function Checkout() {
                     disabled={
                       busy ||
                       !selected ||
-                      paymentMethod !== "cod" ||
-                      !confirmedCod
+                      (paymentMethod === "cod" && !confirmedCod)
                     }
-                    onClick={placeCodOrder}
+                    onClick={placeOrder}
                     className="mt-5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-5 py-3.5 text-sm font-bold !text-white transition hover:bg-[#1f65d6] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {busy ? (
                       "Placing order..."
                     ) : (
                       <>
-                        Confirm COD Order
+                        {paymentMethod === "cod"
+                          ? "Confirm COD Order"
+                          : "Pay with UPI"}
                         <ArrowRight size={17} />
                       </>
                     )}

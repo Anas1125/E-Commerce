@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field
 class OrderCreate(BaseModel):
     shipping_address_id: int
     coupon_code: str | None = Field(default=None, max_length=50)
-    payment_method: str = Field(default="cod", pattern="^(cod|upi|card)$")
+    payment_method: str = Field(
+        default="cod",
+        pattern="^(cod|upi)$",
+    )
 
 
 class OrderItemResponse(BaseModel):

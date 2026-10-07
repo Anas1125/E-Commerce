@@ -51,7 +51,9 @@ def complete_order_payment(
 ):
     return complete_payment(
         payment_id=payment_data.payment_id,
+        gateway_order_id=payment_data.gateway_order_id,
         gateway_payment_id=payment_data.gateway_payment_id,
+        gateway_signature=payment_data.gateway_signature,
         payment_method=payment_data.payment_method,
         user=current_user,
         db=db,

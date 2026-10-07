@@ -20,7 +20,12 @@ from app.models.user import User
 from app.schemas.order import OrderCreate
 from app.models.coupon import Coupon
 from app.models.coupon_usage import CouponUsage
-from app.services.notifications import send_admin_notification
+from app.services.notifications import (
+    send_admin_notification,
+    send_low_stock_notification,
+    send_out_of_stock_notification,
+)
+
 
 def generate_order_number() -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
@@ -77,12 +82,6 @@ def create_order(
     order_data: OrderCreate,
     db: Session,
 ) -> Order:
-
-    if order_data.payment_method != "cod":
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Online payments are not configured. Choose Cash on Delivery.",
-        )
 
     try:
         address = db.scalar(
@@ -300,22 +299,34 @@ def create_order(
             discount_amount=total_discount,
             shipping_fee=shipping_fee,
             total_amount=total_amount,
-            order_status="confirmed",
+
+            order_status=(
+                "confirmed"
+                if order_data.payment_method == "cod"
+                else "pending"
+            ),
+
             payment_status="pending",
-            payment_method="cod",
+            payment_method=order_data.payment_method,
         )
 
         db.add(order)
         db.flush()
 
-        db.add(Payment(
-            order_id=order.id,
-            payment_gateway="cod",
-            payment_method="cod",
-            amount=total_amount,
-            currency="INR",
-            status="pending",
-        ))
+        db.add(
+            Payment(
+                order_id=order.id,
+                payment_gateway=(
+                    "cod"
+                    if order_data.payment_method == "cod"
+                    else "razorpay"
+                ),
+                payment_method=order_data.payment_method,
+                amount=total_amount,
+                currency="INR",
+                status="pending",
+            )
+        )
 
         if coupon is not None:
             coupon.used_count += 1
@@ -327,6 +338,10 @@ def create_order(
             )
 
             db.add(coupon_usage)
+
+        # Store inventory alerts and send them only
+        # after the order has been successfully committed.
+        inventory_alerts = []
 
         for item in order_items:
             order_item = OrderItem(
@@ -352,24 +367,97 @@ def create_order(
             if inventory is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Inventory unavailable for '{item['product'].name}'",
+                    detail=(
+                        f"Inventory unavailable for "
+                        f"'{item['product'].name}'"
+                    ),
                 )
+
+            old_available_quantity = (
+                inventory.quantity
+                - inventory.reserved_quantity
+            )
 
             inventory.reserved_quantity += item["quantity"]
 
+            new_available_quantity = (
+                inventory.quantity
+                - inventory.reserved_quantity
+            )
+
+            # COD orders reserve inventory immediately.
+            # Trigger inventory alerts based on the new
+            # available quantity after the reservation.
+            if order_data.payment_method == "cod":
+
+                if (
+                    old_available_quantity > 5
+                    and new_available_quantity <= 5
+                    and new_available_quantity > 0
+                ):
+                    inventory_alerts.append(
+                        {
+                            "type": "low_stock",
+                            "product_name": item["product"].name,
+                            "available_quantity": new_available_quantity,
+                            "quantity": inventory.quantity,
+                            "reserved_quantity": inventory.reserved_quantity,
+                        }
+                    )
+
+                elif (
+                    old_available_quantity > 0
+                    and new_available_quantity == 0
+                ):
+                    inventory_alerts.append(
+                        {
+                            "type": "out_of_stock",
+                            "product_name": item["product"].name,
+                            "quantity": inventory.quantity,
+                            "reserved_quantity": inventory.reserved_quantity,
+                        }
+                    )
+
         status_history = OrderStatusHistory(
             order_id=order.id,
-            status="confirmed",
-            note="COD order confirmed; payment is due on delivery",
+            status=(
+                "confirmed"
+                if order_data.payment_method == "cod"
+                else "pending"
+            ),
+            note=(
+                "COD order confirmed; payment is due on delivery"
+                if order_data.payment_method == "cod"
+                else "UPI order created; payment is pending through Razorpay"
+            ),
         )
 
         db.add(status_history)
 
-        for cart_item in list(cart.items):
-            db.delete(cart_item)
+        if order_data.payment_method == "cod":
+            for cart_item in list(cart.items):
+                db.delete(cart_item)
 
         db.commit()
         db.refresh(order)
+
+        # Send inventory alerts only after the database
+        # transaction has successfully committed.
+        for alert in inventory_alerts:
+            if alert["type"] == "low_stock":
+                send_low_stock_notification(
+                    product_name=alert["product_name"],
+                    available_quantity=alert["available_quantity"],
+                    quantity=alert["quantity"],
+                    reserved_quantity=alert["reserved_quantity"],
+                )
+
+            elif alert["type"] == "out_of_stock":
+                send_out_of_stock_notification(
+                    product_name=alert["product_name"],
+                    quantity=alert["quantity"],
+                    reserved_quantity=alert["reserved_quantity"],
+                )
 
         # Send admin notification after the order is successfully created.
         items_html = ""
@@ -405,187 +493,190 @@ def create_order(
         if not customer_name:
             customer_name = "Customer"
 
-        send_admin_notification(
-            subject=f"🛒 New TerraLens order — {order.order_number}",
-            html=f"""
-                <div
-                    style="
-                        font-family: Arial, sans-serif;
-                        max-width: 680px;
-                        margin: 0 auto;
-                        padding: 28px;
-                        color: #1F2521;
-                    "
-                >
+        if order.payment_method == "cod":
+            send_admin_notification(
+                subject=f"🛒 New TerraLens order — {order.order_number}",
+                html=f"""
                     <div
                         style="
-                            padding-bottom: 20px;
-                            border-bottom: 1px solid #E3E5DF;
-                        "
-                    >
-                        <h2
-                            style="
-                                margin: 0;
-                                color: #486B57;
-                            "
-                        >
-                            🛒 New TerraLens Order
-                        </h2>
-
-                        <p
-                            style="
-                                margin: 8px 0 0;
-                                color: #737A74;
-                            "
-                        >
-                            A new order has just been placed.
-                        </p>
-                    </div>
-
-                    <div style="padding: 22px 0;">
-                        <p>
-                            <strong>Order:</strong>
-                            {order.order_number}
-                        </p>
-
-                        <p>
-                            <strong>Customer:</strong>
-                            {customer_name}
-                        </p>
-
-                        <p>
-                            <strong>Email:</strong>
-                            {user.email}
-                        </p>
-
-                        <p>
-                            <strong>Phone:</strong>
-                            {user.phone_number}
-                        </p>
-
-                        <p>
-                            <strong>Payment:</strong>
-                            {order.payment_method.upper()}
-                        </p>
-                    </div>
-
-                    <h3
-                        style="
-                            margin-bottom: 10px;
+                            font-family: Arial, sans-serif;
+                            max-width: 680px;
+                            margin: 0 auto;
+                            padding: 28px;
                             color: #1F2521;
                         "
                     >
-                        Order items
-                    </h3>
+                        <div
+                            style="
+                                padding-bottom: 20px;
+                                border-bottom: 1px solid #E3E5DF;
+                            "
+                        >
+                            <h2
+                                style="
+                                    margin: 0;
+                                    color: #486B57;
+                                "
+                            >
+                                🛒 New TerraLens Order
+                            </h2>
 
-                    <table
-                        style="
-                            width: 100%;
-                            border-collapse: collapse;
-                            font-size: 14px;
-                        "
-                    >
-                        <thead>
-                            <tr>
-                                <th
-                                    style="
-                                        padding: 10px 0;
-                                        text-align: left;
-                                        border-bottom: 2px solid #486B57;
-                                    "
-                                >
-                                    Product
-                                </th>
+                            <p
+                                style="
+                                    margin: 8px 0 0;
+                                    color: #737A74;
+                                "
+                            >
+                                A new order has just been placed.
+                            </p>
+                        </div>
 
-                                <th
-                                    style="
-                                        padding: 10px 0;
-                                        text-align: center;
-                                        border-bottom: 2px solid #486B57;
-                                    "
-                                >
-                                    Qty
-                                </th>
+                        <div style="padding: 22px 0;">
+                            <p>
+                                <strong>Order:</strong>
+                                {order.order_number}
+                            </p>
 
-                                <th
-                                    style="
-                                        padding: 10px 0;
-                                        text-align: right;
-                                        border-bottom: 2px solid #486B57;
-                                    "
-                                >
-                                    Amount
-                                </th>
-                            </tr>
-                        </thead>
+                            <p>
+                                <strong>Customer:</strong>
+                                {customer_name}
+                            </p>
 
-                        <tbody>
-                            {items_html}
-                        </tbody>
-                    </table>
+                            <p>
+                                <strong>Email:</strong>
+                                {user.email}
+                            </p>
 
-                    <div
-                        style="
-                            margin-top: 24px;
-                            padding: 18px;
-                            background: #F0F1EC;
-                            border-radius: 10px;
-                        "
-                    >
-                        <p style="margin: 0 0 8px;">
-                            <strong>Subtotal:</strong>
-                            ₹{order.subtotal:,.2f}
-                        </p>
+                            <p>
+                                <strong>Phone:</strong>
+                                {user.phone_number}
+                            </p>
 
-                        <p style="margin: 0 0 8px;">
-                            <strong>Discount:</strong>
-                            ₹{order.discount_amount:,.2f}
-                        </p>
+                            <p>
+                                <strong>Payment:</strong>
+                                {order.payment_method.upper()}
+                            </p>
+                        </div>
 
-                        <p style="margin: 0 0 8px;">
-                            <strong>Shipping:</strong>
-                            ₹{order.shipping_fee:,.2f}
-                        </p>
+                        <h3
+                            style="
+                                margin-bottom: 10px;
+                                color: #1F2521;
+                            "
+                        >
+                            Order items
+                        </h3>
+
+                        <table
+                            style="
+                                width: 100%;
+                                border-collapse: collapse;
+                                font-size: 14px;
+                            "
+                        >
+                            <thead>
+                                <tr>
+                                    <th
+                                        style="
+                                            padding: 10px 0;
+                                            text-align: left;
+                                            border-bottom: 2px solid #486B57;
+                                        "
+                                    >
+                                        Product
+                                    </th>
+
+                                    <th
+                                        style="
+                                            padding: 10px 0;
+                                            text-align: center;
+                                            border-bottom: 2px solid #486B57;
+                                        "
+                                    >
+                                        Qty
+                                    </th>
+
+                                    <th
+                                        style="
+                                            padding: 10px 0;
+                                            text-align: right;
+                                            border-bottom: 2px solid #486B57;
+                                        "
+                                    >
+                                        Amount
+                                    </th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                {items_html}
+                            </tbody>
+                        </table>
+
+                        <div
+                            style="
+                                margin-top: 24px;
+                                padding: 18px;
+                                background: #F0F1EC;
+                                border-radius: 10px;
+                            "
+                        >
+                            <p style="margin: 0 0 8px;">
+                                <strong>Subtotal:</strong>
+                                ₹{order.subtotal:,.2f}
+                            </p>
+
+                            <p style="margin: 0 0 8px;">
+                                <strong>Discount:</strong>
+                                ₹{order.discount_amount:,.2f}
+                            </p>
+
+                            <p style="margin: 0 0 8px;">
+                                <strong>Shipping:</strong>
+                                ₹{order.shipping_fee:,.2f}
+                            </p>
+
+                            <p
+                                style="
+                                    margin: 12px 0 0;
+                                    padding-top: 12px;
+                                    border-top: 1px solid #D9DDD7;
+                                    font-size: 18px;
+                                    color: #486B57;
+                                "
+                            >
+                                <strong>
+                                    Total: ₹{order.total_amount:,.2f}
+                                </strong>
+                            </p>
+                        </div>
 
                         <p
                             style="
-                                margin: 12px 0 0;
-                                padding-top: 12px;
-                                border-top: 1px solid #D9DDD7;
-                                font-size: 18px;
-                                color: #486B57;
+                                margin-top: 24px;
+                                font-size: 13px;
+                                color: #737A74;
                             "
                         >
-                            <strong>
-                                Total: ₹{order.total_amount:,.2f}
-                            </strong>
+                            This is an automatic TerraLens store notification.
                         </p>
                     </div>
-
-                    <p
-                        style="
-                            margin-top: 24px;
-                            font-size: 13px;
-                            color: #737A74;
-                        "
-                    >
-                        This is an automatic TerraLens store notification.
-                    </p>
-                </div>
-            """,
-        )
+                """,
+            )
 
         return order
 
     except Exception:
         db.rollback()
         raise
-    
+
+
 def cancel_order(
     order_id: int,
     user: User,
     db: Session,
 ) -> Order:
+
     order = db.scalar(
         select(Order)
         .options(
@@ -756,6 +847,7 @@ def cancel_order(
 
     return order
 
+
 def update_order_status(
     order_id: int,
     new_status: str,
@@ -805,23 +897,82 @@ def update_order_status(
 
     # COD payment is collected when the order is delivered.
     if new_status == "delivered":
+
         if order.payment_method == "cod":
+
             if order.payment is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="COD payment record not found",
                 )
 
+            # Mark COD payment as paid.
             if order.payment.status != "paid":
                 order.payment.status = "paid"
 
             order.payment_status = "paid"
 
-        elif order.payment_status != "paid":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="An unpaid order cannot be marked as delivered",
-            )
+            # COD inventory is finalized only when the order
+            # is actually delivered.
+            for order_item in order.items:
+
+                inventory = db.scalar(
+                    select(Inventory)
+                    .where(
+                        Inventory.product_id
+                        == order_item.product_id
+                    )
+                    .with_for_update()
+                )
+
+                if inventory is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Inventory not found for "
+                            f"'{order_item.product_name}'"
+                        ),
+                    )
+
+                if (
+                    inventory.reserved_quantity
+                    < order_item.quantity
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Reserved inventory is insufficient "
+                            f"for '{order_item.product_name}'"
+                        ),
+                    )
+
+                if inventory.quantity < order_item.quantity:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Physical inventory is insufficient "
+                            f"for '{order_item.product_name}'"
+                        ),
+                    )
+
+                # The COD items have now physically left
+                # the warehouse.
+                inventory.quantity -= order_item.quantity
+
+                # The reservation is no longer needed because
+                # the order has been delivered.
+                inventory.reserved_quantity -= order_item.quantity
+
+        else:
+            # UPI inventory was already finalized when payment
+            # succeeded. Do NOT change inventory again here.
+            if order.payment_status != "paid":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "An unpaid order cannot be marked as delivered"
+                    ),
+                )
 
     order.order_status = new_status
 

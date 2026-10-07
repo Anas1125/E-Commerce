@@ -4,14 +4,17 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 
-
 class PaymentCreate(BaseModel):
     order_id: int
 
+
 class PaymentComplete(BaseModel):
     payment_id: int
+    gateway_order_id: str
     gateway_payment_id: str
-    payment_method: str | None = None
+    gateway_signature: str
+    payment_method: str | None = "upi"
+
 
 class PaymentFail(BaseModel):
     payment_id: int
