@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff, LockKeyhole, CheckCircle2 } from "lucide-react";
 
 import api from "../services/api";
+import BrandMark from "../components/BrandMark";
 
 function ResetPassword() {
   const navigate = useNavigate();
@@ -61,8 +62,19 @@ function ResetPassword() {
 
   if (success) {
     return (
-      <div className="min-h-[calc(100vh-80px)] bg-[#F4F6F4] px-4 py-12">
-        <div className="mx-auto flex max-w-md justify-center">
+      <div className="min-h-screen bg-[#F4F6F4] px-4 py-10">
+        <div className="mx-auto max-w-md">
+          <div className="mb-8 flex justify-center">
+            <BrandMark
+              alwaysShowName
+              fallbackLogo
+              className="gap-2"
+              imageClassName="h-9 w-9 shrink-0 object-contain"
+              nameClassName="text-xl font-semibold tracking-tight text-[#344d3e]"
+            />
+          </div>
+
+          <div className="flex justify-center"></div>
           <div className="w-full rounded-2xl border border-[#E3E5DF] bg-white p-8 text-center shadow-sm">
             <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#DCE7DE] text-[#486B57]">
               <CheckCircle2 size={28} />
@@ -91,8 +103,17 @@ function ResetPassword() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-80px)] bg-[#F4F6F4] px-4 py-12">
-      <div className="mx-auto max-w-md">
+  <div className="min-h-screen bg-[#F4F6F4] px-4 py-10">
+    <div className="mx-auto max-w-md">
+      <div className="mb-8 flex justify-center">
+        <BrandMark
+          alwaysShowName
+          fallbackLogo
+          className="gap-2"
+          imageClassName="h-9 w-9 shrink-0 object-contain"
+          nameClassName="text-xl font-semibold tracking-tight text-[#344d3e]"
+        />
+      </div>
         <div className="rounded-2xl border border-[#E3E5DF] bg-white p-8 shadow-sm">
           <div className="mb-6">
             <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-[#2878E8] text-white">
