@@ -26,20 +26,20 @@ def add_column(table, column):
         op.add_column(table, column)
 
 
-def has_unique(table, name):
+def has_unique(table, name, columns):
     inspector = inspect(op.get_bind())
 
-    if any(
-        item.get("name") == name
-        for item in inspector.get_unique_constraints(table)
-    ):
-        return True
+    for item in inspector.get_unique_constraints(table):
+        if item.get("name") == name or item.get("column_names") == columns:
+            return True
 
-    return any(
-        item.get("name") == name
-        for item in inspector.get_indexes(table)
-        if item.get("unique")
-    )
+    for item in inspector.get_indexes(table):
+        if item.get("unique") and (
+            item.get("name") == name or item.get("column_names") == columns
+        ):
+            return True
+
+    return False
 
 
 def has_fk(table, name, column, target):
@@ -72,7 +72,11 @@ def upgrade():
     add_column("orders", sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True))
     add_column("orders", sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True))
 
-    if not has_unique("orders", "uq_orders_user_idem_key"):
+    if not has_unique(
+        "orders",
+        "uq_orders_user_idem_key",
+        ["user_id", "idempotency_key"],
+    ):
         op.create_unique_constraint(
             "uq_orders_user_idem_key", "orders", ["user_id", "idempotency_key"]
         )
