@@ -361,7 +361,7 @@ def update_product_inventory(
             inventory = Inventory(
                 product_id=product_id,
                 quantity=inventory_data.quantity,
-                reserved_quantity=inventory_data.reserved_quantity,
+                reserved_quantity=0,
             )
             db.add(inventory)
             db.flush()

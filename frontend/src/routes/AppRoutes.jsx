@@ -17,6 +17,7 @@ import Account from "../pages/Account";
 import Addresses from "../pages/Addresses";
 import Orders from "../pages/Orders";
 import OrderDetails from "../pages/OrderDetails";
+import Contact from "../pages/Contact";
 
 import AdminLogin from "../pages/AdminLogin";
 import AdminDashboard from "../pages/AdminDashboard";
@@ -84,6 +85,7 @@ function AppRoutes() {
           <Route path="/register" element={<Register />} />
 
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path="/terms" element={<Terms />} />
 
           <Route path="/account" element={protect(Account)} />

@@ -926,7 +926,9 @@ function OrderDetails({ id }) {
                   )}
 
                   <Link
-                    to={SUPPORT_PATH}
+                    to={`${SUPPORT_PATH}?order=${encodeURIComponent(
+                      order.order_number || order.id
+                    )}`}
                     className={`flex cursor-pointer items-center gap-2 rounded-md text-sm font-semibold text-[#2874F0] hover:underline ${FOCUS_RING}`}
                   >
                     <LifeBuoy size={15} aria-hidden="true" />

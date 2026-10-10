@@ -8,6 +8,7 @@ import {
   LogOut,
   UserRound,
   ShieldCheck,
+  LifeBuoy,
 } from "lucide-react";
 
 import useAuth from "../context/useAuth";
@@ -252,6 +253,36 @@ function Account() {
                   </div>
                 </div>
               </section>
+
+              {/* CONTACT SUPPORT */}
+              <section className="rounded-md border border-[#E0E0E0] bg-white p-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E8F0FE] text-[#2874F0]">
+                    <LifeBuoy size={20} aria-hidden="true" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-[#212121]">
+                      Need help?
+                    </h3>
+
+                    <p className="mt-1 text-xs leading-5 text-[#878787]">
+                      Questions about orders, delivery, returns or products?
+                      Our support page is here to help.
+                    </p>
+                  </div>
+                </div>
+
+                <Link
+                  to="/contact"
+                  className={`mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-[#D0D0D0] bg-white px-4 py-3 text-sm font-semibold text-[#212121] transition hover:border-[#2874F0] hover:bg-[#F5F9FF] hover:text-[#2874F0] ${FOCUS_RING}`}
+                >
+                  <LifeBuoy size={16} aria-hidden="true" />
+                  Contact support
+                  <ArrowRight size={16} aria-hidden="true" />
+                </Link>
+              </section>
+
 
               {/* SIGN OUT */}
               <section className="rounded-md border border-[#E0E0E0] bg-white p-5">
