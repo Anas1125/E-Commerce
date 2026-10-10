@@ -1,7 +1,7 @@
 import {
-  useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -12,7 +12,11 @@ import {
   Trash2,
   Truck,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 
 import api from "../services/api";
 import useAuth from "../context/useAuth";
@@ -20,125 +24,239 @@ import { LoadingState, Price } from "../components/Storefront";
 import SEO from "../components/SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
 
-function Cart() {
-  const { siteName = "TerraLens" } = useContext(
-    SiteBrandingContext,
-  );
+const NETWORK_ERROR =
+  "Network problem. Check your connection and try again.";
 
-  const { isAuthenticated, refreshCounts } = useAuth();
+const getErrorMessage = (error, fallback) => {
+  const detail = error.response?.data?.detail;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  return error.response ? fallback : NETWORK_ERROR;
+};
+
+const pickPrimaryImage = (images) => {
+  if (!Array.isArray(images)) {
+    return null;
+  }
+
+  return (
+    images.find((image) => image.is_primary)?.image_url ||
+    images[0]?.image_url ||
+    null
+  );
+};
+
+const getMaxQuantity = (product, item) => {
+  if (!product) {
+    return null;
+  }
+
+  if (product.available_stock != null) {
+    const available = Number(product.available_stock);
+
+    if (Number.isFinite(available)) {
+      return Math.max(0, available + item.quantity);
+    }
+  }
+
+  const stock = Number(product.stock);
+
+  return Number.isFinite(stock) ? stock : null;
+};
+
+function Cart() {
+  const { siteName = "TerraLens" } =
+    useContext(SiteBrandingContext) || {};
+
+  const {
+    isAuthenticated,
+    loading: authLoading,
+    refreshCounts,
+  } = useAuth();
+
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [cart, setCart] = useState(null);
   const [products, setProducts] = useState({});
   const [images, setImages] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState("");
+  const [updatingId, setUpdatingId] = useState(null);
+  const requestedImagesRef = useRef(new Set());
 
-  const load = useCallback(async () => {
-    if (!isAuthenticated) {
-      setLoading(false);
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) {
       return;
     }
 
-    try {
-      const [cartResponse, productsResponse] =
-        await Promise.all([
-          api.get("/cart/"),
-          api.get("/products/"),
-        ]);
+    let cancelled = false;
 
-      const cartData = cartResponse.data;
+    const loadAll = async () => {
+      try {
+        const [cartResponse, productsResponse] =
+          await Promise.all([
+            api.get("/cart/"),
+            api.get("/products/"),
+          ]);
 
-      setCart(cartData);
+        if (cancelled) {
+          return;
+        }
 
-      setProducts(
-        Object.fromEntries(
-          productsResponse.data.map((product) => [
-            product.id,
-            product,
-          ]),
-        ),
-      );
+        setCart(cartResponse.data);
 
-      const imageEntries = await Promise.all(
-        cartData.items.map(async (item) => {
-          try {
-            const response = await api.get(
-              `/products/${item.product_id}/images`,
-            );
+        setProducts(
+          Object.fromEntries(
+            productsResponse.data.map((product) => [
+              product.id,
+              product,
+            ]),
+          ),
+        );
 
-            const image =
-              response.data.find(
-                (itemImage) => itemImage.is_primary,
-              )?.image_url ||
-              response.data[0]?.image_url ||
-              null;
+        setError("");
+      } catch (requestError) {
+        if (cancelled) {
+          return;
+        }
 
-            return [item.product_id, image];
-          } catch {
-            return [item.product_id, null];
-          }
-        }),
-      );
+        setError(
+          getErrorMessage(
+            requestError,
+            "Unable to load your cart.",
+          ),
+        );
+      } finally {
+        if (!cancelled) {
+          setLoaded(true);
+        }
+      }
+    };
 
-      setImages(
-        Object.fromEntries(
-          imageEntries.filter(([, url]) => url),
-        ),
-      );
+    loadAll();
 
-      setError("");
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.detail ||
-          "Unable to load your cart.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [isAuthenticated]);
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, isAuthenticated, reloadKey]);
+
+  const cartProductIds = cart?.items
+    ?.map((item) => item.product_id)
+    .join(",");
 
   useEffect(() => {
-    const timer = setTimeout(load, 0);
+    if (!cartProductIds) {
+      return;
+    }
 
-    return () => clearTimeout(timer);
-  }, [load]);
+    const idsToLoad = cartProductIds
+      .split(",")
+      .filter((id) => !requestedImagesRef.current.has(id));
 
-  const update = async (id, quantity) => {
+    idsToLoad.forEach((id) => {
+      requestedImagesRef.current.add(id);
+
+      const loadImage = async () => {
+        try {
+          const response = await api.get(
+            `/products/${id}/images`,
+          );
+
+          const url = pickPrimaryImage(response.data);
+
+          if (url) {
+            setImages((current) => ({
+              ...current,
+              [id]: url,
+            }));
+          }
+        } catch {
+          // No image: the placeholder icon is shown instead.
+        }
+      };
+
+      loadImage();
+    });
+  }, [cartProductIds]);
+
+  const reloadCart = async () => {
+    const response = await api.get("/cart/");
+
+    setCart(response.data);
+  };
+
+  const refreshProduct = async (productId) => {
     try {
-      if (quantity < 1) {
-        await api.delete(`/cart/items/${id}`);
-      } else {
-        await api.put(`/cart/items/${id}`, {
+      const response = await api.get(`/products/${productId}`);
+
+      setProducts((current) => ({
+        ...current,
+        [productId]: response.data,
+      }));
+    } catch {
+      // Keep the previous product data if this fails.
+    }
+  };
+
+  const runCartAction = async (item, action, fallback) => {
+    if (updatingId !== null) {
+      return;
+    }
+
+    setUpdatingId(item.id);
+    setError("");
+
+    try {
+      await action();
+      await reloadCart();
+      await refreshProduct(item.product_id);
+      await refreshCounts();
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, fallback));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const changeQuantity = (item, quantity) =>
+    runCartAction(
+      item,
+      () =>
+        api.put(`/cart/items/${item.id}`, {
           quantity,
-        });
-      }
+        }),
+      "Cart update failed.",
+    );
 
-      await load();
-      await refreshCounts();
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.detail ||
-          "Cart update failed.",
-      );
-    }
-  };
+  const removeItem = (item) =>
+    runCartAction(
+      item,
+      () => api.delete(`/cart/items/${item.id}`),
+      "Unable to remove item.",
+    );
+  const loading = authLoading || (isAuthenticated && !loaded);
 
-  const remove = async (id) => {
-    try {
-      await api.delete(`/cart/items/${id}`);
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F1F3F6] px-4 py-10 sm:px-6">
+        <SEO
+          title="Cart"
+          description={`View your shopping cart at ${siteName}.`}
+          noIndex
+        />
+        <div className="mx-auto max-w-7xl">
+          <LoadingState />
+        </div>
+      </div>
+    );
+  }
 
-      await load();
-      await refreshCounts();
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.detail ||
-          "Unable to remove item.",
-      );
-    }
-  };
-
-  if (!isAuthenticated && !loading) {
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#F1F3F6] px-4 py-10 sm:px-6">
         <SEO
@@ -163,27 +281,13 @@ function Cart() {
 
             <Link
               to="/login"
+              state={{ from: location }}
               className="mt-6 inline-flex cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-7 py-3 text-sm font-bold !text-white transition hover:bg-[#1f65d6]"
             >
               Sign in
               <ArrowRight size={16} />
             </Link>
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F1F3F6] px-4 py-10 sm:px-6">
-        <SEO
-          title="Cart"
-          description={`View your shopping cart at ${siteName}.`}
-          noIndex
-        />
-        <div className="mx-auto max-w-7xl">
-          <LoadingState />
         </div>
       </div>
     );
@@ -204,6 +308,18 @@ function Cart() {
           >
             {error}
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setError("");
+              setLoaded(false);
+              setReloadKey((key) => key + 1);
+            }}
+            className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#2874F0] px-6 py-3 text-sm font-bold !text-white transition hover:bg-[#1f65d6]"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );
@@ -229,6 +345,16 @@ function Cart() {
               Your Cart
             </h1>
           </div>
+
+          {/* ERROR (for example after removing the last item fails) */}
+          {error && (
+            <div
+              role="alert"
+              className="mb-5 border border-[#FFCDD2] bg-[#FFEBEE] px-5 py-4 text-sm text-[#D32F2F]"
+            >
+              {error}
+            </div>
+          )}
 
           {/* EMPTY CART */}
           <div className="border border-[#E0E0E0] bg-white px-6 py-16 text-center sm:py-20">
@@ -263,6 +389,22 @@ function Cart() {
     (total, item) => total + item.quantity,
     0,
   );
+
+  const busy = updatingId !== null;
+  const hasUnavailableItem = cart.items.some((item) => {
+    const product = products[item.product_id];
+    const maxQuantity = getMaxQuantity(product, item);
+
+    if (!product) {
+      return false;
+    }
+
+    return (
+      product.is_active === false ||
+      (maxQuantity !== null &&
+        (maxQuantity <= 0 || item.quantity > maxQuantity))
+    );
+  });
 
   return (
     <div className="min-h-screen bg-[#F1F3F6] px-4 py-6 pb-14 sm:px-6 sm:py-8">
@@ -333,15 +475,33 @@ function Cart() {
                 const product =
                   products[item.product_id] || {};
 
-                const image =
-                  images[item.product_id];
+                const image = images[item.product_id];
+                const stock = getMaxQuantity(
+                  products[item.product_id],
+                  item,
+                );
+
+                const isUpdating = updatingId === item.id;
+
+                const unavailable =
+                  Boolean(products[item.product_id]) &&
+                  (product.is_active === false ||
+                    (stock !== null &&
+                      (stock <= 0 ||
+                        item.quantity > stock)));
+
+                const atStockLimit =
+                  stock !== null &&
+                  item.quantity >= stock;
 
                 return (
                   <article
                     key={item.id}
-                    className={`p-5 ${
-                      index !==
-                      cart.items.length - 1
+                    aria-busy={isUpdating}
+                    className={`p-5 transition-opacity ${
+                      isUpdating ? "opacity-60" : ""
+                    } ${
+                      index !== cart.items.length - 1
                         ? "border-b border-[#E0E0E0]"
                         : ""
                     }`}
@@ -374,8 +534,7 @@ function Cart() {
                           <div className="min-w-0">
 
                             <p className="text-xs font-bold uppercase tracking-wide text-[#2874F0]">
-                              {product.brand ||
-                                siteName}
+                              {product.brand || siteName}
                             </p>
 
                             <Link
@@ -394,18 +553,32 @@ function Cart() {
 
                           {/* PRICE */}
                           <Price
-                            value={
-                              item.line_total
-                            }
+                            value={item.line_total}
                             className="shrink-0 text-base font-bold text-[#212121] sm:text-lg"
                           />
                         </div>
 
                         {/* STOCK / DELIVERY */}
                         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                          <span className="font-semibold text-[#388E3C]">
-                            In stock
-                          </span>
+                          {unavailable ? (
+                            <span className="font-semibold text-[#D32F2F]">
+                              {stock !== null &&
+                              stock > 0 &&
+                              item.quantity > stock
+                                ? `Only ${stock} available`
+                                : "Out of stock"}
+                            </span>
+                          ) : stock !== null &&
+                            stock > 0 &&
+                            stock <= 5 ? (
+                            <span className="font-semibold text-[#E65100]">
+                              Only {stock} left
+                            </span>
+                          ) : stock !== null ? (
+                            <span className="font-semibold text-[#388E3C]">
+                              In stock
+                            </span>
+                          ) : null}
 
                           <span className="flex items-center gap-1 text-[#878787]">
                             <Truck size={13} />
@@ -427,21 +600,18 @@ function Cart() {
                                 type="button"
                                 aria-label="Decrease quantity"
                                 disabled={
-                                  item.quantity <=
-                                  1
+                                  busy ||
+                                  item.quantity <= 1
                                 }
                                 onClick={() =>
-                                  update(
-                                    item.id,
-                                    item.quantity -
-                                      1,
+                                  changeQuantity(
+                                    item,
+                                    item.quantity - 1,
                                   )
                                 }
                                 className="flex h-full w-9 cursor-pointer items-center justify-center text-[#212121] transition hover:bg-[#F1F3F6] disabled:cursor-not-allowed disabled:opacity-40"
                               >
-                                <Minus
-                                  size={14}
-                                />
+                                <Minus size={14} />
                               </button>
 
                               <span className="flex h-full min-w-10 items-center justify-center border-x border-[#D0D0D0] px-2 text-sm font-semibold text-[#212121]">
@@ -451,18 +621,18 @@ function Cart() {
                               <button
                                 type="button"
                                 aria-label="Increase quantity"
+                                disabled={
+                                  busy || atStockLimit
+                                }
                                 onClick={() =>
-                                  update(
-                                    item.id,
-                                    item.quantity +
-                                      1,
+                                  changeQuantity(
+                                    item,
+                                    item.quantity + 1,
                                   )
                                 }
-                                className="flex h-full w-9 cursor-pointer items-center justify-center text-[#212121] transition hover:bg-[#F1F3F6]"
+                                className="flex h-full w-9 cursor-pointer items-center justify-center text-[#212121] transition hover:bg-[#F1F3F6] disabled:cursor-not-allowed disabled:opacity-40"
                               >
-                                <Plus
-                                  size={14}
-                                />
+                                <Plus size={14} />
                               </button>
                             </div>
                           </div>
@@ -470,15 +640,12 @@ function Cart() {
                           {/* REMOVE */}
                           <button
                             type="button"
-                            onClick={() =>
-                              remove(item.id)
-                            }
+                            disabled={busy}
+                            onClick={() => removeItem(item)}
                             aria-label={`Remove ${item.product_name}`}
-                            className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#555] transition hover:text-[#D32F2F]"
+                            className="inline-flex cursor-pointer items-center gap-2 text-xs font-bold uppercase tracking-wide text-[#555] transition hover:text-[#D32F2F] disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            <Trash2
-                              size={15}
-                            />
+                            <Trash2 size={15} />
                             Remove
                           </button>
                         </div>
@@ -505,9 +672,7 @@ function Cart() {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-[#555]">
                   Price ({itemCount}{" "}
-                  {itemCount === 1
-                    ? "item"
-                    : "items"})
+                  {itemCount === 1 ? "item" : "items"})
                 </span>
 
                 <Price
@@ -568,13 +733,23 @@ function Cart() {
                 </div>
               </div>
 
+              {/* UNAVAILABLE ITEMS */}
+              {hasUnavailableItem && (
+                <p
+                  role="status"
+                  className="mt-5 rounded-md bg-[#FFF3E0] px-4 py-3 text-xs leading-5 text-[#E65100]"
+                >
+                  Some items are unavailable. Remove them or
+                  lower the quantity to continue.
+                </p>
+              )}
+
               {/* CHECKOUT */}
               <button
                 type="button"
-                onClick={() =>
-                  navigate("/checkout")
-                }
-                className="mt-6 flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-5 text-sm font-bold !text-white transition hover:bg-[#1f65d6]"
+                disabled={busy || hasUnavailableItem}
+                onClick={() => navigate("/checkout")}
+                className="mt-6 flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-5 text-sm font-bold !text-white transition hover:bg-[#1f65d6] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Continue to Checkout
                 <ArrowRight size={17} />

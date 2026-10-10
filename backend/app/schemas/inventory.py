@@ -1,16 +1,17 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+MAX_STOCK_QUANTITY = 1_000_000
 
 
 class InventoryUpdate(BaseModel):
-    quantity: int = Field(ge=0)
-    reserved_quantity: int = Field(ge=0)
+    quantity: int = Field(ge=0, le=MAX_STOCK_QUANTITY)
+
 
 class InventoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     product_id: int
     quantity: int
     reserved_quantity: int
-
-    model_config = {
-        "from_attributes": True
-    }
+    available_quantity: int

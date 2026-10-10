@@ -1,8 +1,9 @@
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models.cart import Cart
@@ -30,13 +31,23 @@ def get_or_create_cart(
     db: Session,
 ) -> Cart:
     cart = db.scalar(
-        select(Cart).where(Cart.user_id == user.id)
+        select(Cart).where(Cart.user_id == user.id).with_for_update()
     )
 
-    if cart is None:
-        cart = Cart(user_id=user.id)
-        db.add(cart)
-        db.flush()
+    if cart is not None:
+        return cart
+
+    try:
+        with db.begin_nested():
+            cart = Cart(user_id=user.id)
+            db.add(cart)
+    except IntegrityError:
+        cart = db.scalar(
+            select(Cart).where(Cart.user_id == user.id).with_for_update()
+        )
+
+        if cart is None:
+            raise
 
     return cart
 
@@ -45,8 +56,12 @@ def build_cart_response(cart: Cart) -> CartResponse:
     items = []
     subtotal = Decimal("0.00")
 
-    for item in cart.items:
-        line_total = item.product.price * item.quantity
+    for item in sorted(cart.items, key=lambda cart_item: cart_item.id):
+        product = item.product
+        if product is None or not product.is_active:
+            continue
+
+        line_total = product.price * item.quantity
         subtotal += line_total
 
         items.append(
@@ -54,8 +69,8 @@ def build_cart_response(cart: Cart) -> CartResponse:
                 id=item.id,
                 product_id=item.product_id,
                 quantity=item.quantity,
-                product_name=item.product.name,
-                unit_price=item.product.price,
+                product_name=product.name,
+                unit_price=product.price,
                 line_total=line_total,
             )
         )
@@ -68,17 +83,48 @@ def build_cart_response(cart: Cart) -> CartResponse:
     )
 
 
+def _load_cart_response(db: Session, cart_id: int) -> CartResponse:
+    cart = db.scalar(
+        select(Cart)
+        .options(selectinload(Cart.items).selectinload(CartItem.product))
+        .where(Cart.id == cart_id)
+        .execution_options(populate_existing=True)
+    )
+
+    if cart is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cart not found",
+        )
+
+    return build_cart_response(cart)
+
+
+
+def _available_quantity(inventory: Inventory) -> int:
+    return max(0, inventory.quantity - inventory.reserved_quantity)
+
+
 @router.get("/", response_model=CartResponse)
 def get_cart(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     cart = get_or_create_cart(current_user, db)
+    cart_id = cart.id
+
+    db.execute(
+        delete(CartItem).where(
+            CartItem.cart_id == cart_id,
+            CartItem.product_id.in_(
+                select(Product.id).where(Product.is_active.is_(False))
+            ),
+        )
+    )
 
     db.commit()
-    db.refresh(cart)
 
-    return build_cart_response(cart)
+    return _load_cart_response(db, cart_id)
 
 
 @router.post(
@@ -91,10 +137,16 @@ def add_cart_item(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if item_data.quantity < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Quantity must be at least 1",
+        )
+
     product = db.scalar(
         select(Product).where(
             Product.id == item_data.product_id,
-            Product.is_active == True,
+            Product.is_active.is_(True),
         )
     )
 
@@ -105,9 +157,7 @@ def add_cart_item(
         )
 
     inventory = db.scalar(
-        select(Inventory).where(
-            Inventory.product_id == product.id
-        )
+        select(Inventory).where(Inventory.product_id == product.id)
     )
 
     if inventory is None:
@@ -116,15 +166,14 @@ def add_cart_item(
             detail="Product inventory is not available",
         )
 
-    available_quantity = (
-        inventory.quantity - inventory.reserved_quantity
-    )
+    available_quantity = _available_quantity(inventory)
 
     cart = get_or_create_cart(current_user, db)
+    cart_id = cart.id
 
     existing_item = db.scalar(
         select(CartItem).where(
-            CartItem.cart_id == cart.id,
+            CartItem.cart_id == cart_id,
             CartItem.product_id == product.id,
         )
     )
@@ -143,18 +192,17 @@ def add_cart_item(
     if existing_item:
         existing_item.quantity = new_quantity
     else:
-        cart_item = CartItem(
-            cart_id=cart.id,
-            product_id=product.id,
-            quantity=item_data.quantity,
+        db.add(
+            CartItem(
+                cart_id=cart_id,
+                product_id=product.id,
+                quantity=item_data.quantity,
+            )
         )
 
-        db.add(cart_item)
-
     db.commit()
-    db.refresh(cart)
 
-    return build_cart_response(cart)
+    return _load_cart_response(db, cart_id)
 
 
 @router.put(
@@ -167,12 +215,19 @@ def update_cart_item(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if item_data.quantity < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Quantity must be at least 1",
+        )
+
     cart = get_or_create_cart(current_user, db)
+    cart_id = cart.id
 
     item = db.scalar(
         select(CartItem).where(
             CartItem.id == item_id,
-            CartItem.cart_id == cart.id,
+            CartItem.cart_id == cart_id,
         )
     )
 
@@ -183,9 +238,7 @@ def update_cart_item(
         )
 
     inventory = db.scalar(
-        select(Inventory).where(
-            Inventory.product_id == item.product_id
-        )
+        select(Inventory).where(Inventory.product_id == item.product_id)
     )
 
     if inventory is None:
@@ -194,9 +247,7 @@ def update_cart_item(
             detail="Product inventory is not available",
         )
 
-    available_quantity = (
-        inventory.quantity - inventory.reserved_quantity
-    )
+    available_quantity = _available_quantity(inventory)
 
     if item_data.quantity > available_quantity:
         raise HTTPException(
@@ -207,9 +258,8 @@ def update_cart_item(
     item.quantity = item_data.quantity
 
     db.commit()
-    db.refresh(cart)
 
-    return build_cart_response(cart)
+    return _load_cart_response(db, cart_id)
 
 
 @router.delete(
@@ -222,11 +272,12 @@ def remove_cart_item(
     db: Session = Depends(get_db),
 ):
     cart = get_or_create_cart(current_user, db)
+    cart_id = cart.id
 
     item = db.scalar(
         select(CartItem).where(
             CartItem.id == item_id,
-            CartItem.cart_id == cart.id,
+            CartItem.cart_id == cart_id,
         )
     )
 
@@ -238,9 +289,8 @@ def remove_cart_item(
 
     db.delete(item)
     db.commit()
-    db.refresh(cart)
 
-    return build_cart_response(cart)
+    return _load_cart_response(db, cart_id)
 
 
 @router.delete(
@@ -253,7 +303,6 @@ def clear_cart(
 ):
     cart = get_or_create_cart(current_user, db)
 
-    for item in list(cart.items):
-        db.delete(item)
+    db.execute(delete(CartItem).where(CartItem.cart_id == cart.id))
 
     db.commit()

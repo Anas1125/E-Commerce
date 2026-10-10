@@ -1,133 +1,176 @@
+import logging
 import os
+from html import escape
 
 import resend
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-ADMIN_NOTIFICATION_EMAIL = os.getenv(
-    "ADMIN_NOTIFICATION_EMAIL"
-)
+logger = logging.getLogger(__name__)
+
+SANDBOX_FROM_EMAIL = "onboarding@resend.dev"
+
+
+def _admin_recipients() -> list[str]:
+    raw = os.getenv("ADMIN_NOTIFICATION_EMAIL", "")
+
+    return [address.strip() for address in raw.split(",") if address.strip()]
+
+
+def _single_line(value: str) -> str:
+    """Collapses newlines and extra spaces so a name can't mangle a subject."""
+    return " ".join(str(value).split())
 
 
 def send_admin_notification(
     subject: str,
     html: str,
-):
-    if not RESEND_API_KEY:
-        print("RESEND_API_KEY is not configured.")
-        return
+    text: str | None = None,
+) -> dict | None:
+    api_key = os.getenv("RESEND_API_KEY")
 
-    if not ADMIN_NOTIFICATION_EMAIL:
-        print(
-            "ADMIN_NOTIFICATION_EMAIL is not configured."
+    if not api_key:
+        logger.warning("RESEND_API_KEY is not configured; admin notification skipped.")
+        return None
+
+    recipients = _admin_recipients()
+
+    if not recipients:
+        logger.warning(
+            "ADMIN_NOTIFICATION_EMAIL is not configured; admin notification skipped."
         )
-        return
+        return None
 
-    resend.api_key = RESEND_API_KEY
+    from_email = os.getenv("RESEND_FROM_EMAIL") or SANDBOX_FROM_EMAIL
+
+    resend.api_key = api_key
 
     params: resend.Emails.SendParams = {
-        "from": "TerraLens <onboarding@resend.dev>",
-        "to": [ADMIN_NOTIFICATION_EMAIL],
-        "subject": subject,
+        "from": from_email,
+        "to": recipients,
+        "subject": _single_line(subject),
         "html": html,
     }
 
+    if text:
+        params["text"] = text
+
     try:
-        email = resend.Emails.send(params)
+        result = resend.Emails.send(params)
+    except Exception:
+        logger.exception("Failed to send admin notification")
+        return None
 
-        print(
-            f"Admin notification sent: {email}"
-        )
+    logger.info("Admin notification sent (id=%s)", result.get("id"))
 
-        return email
+    return result
 
-    except Exception as error:
-        print(
-            f"Failed to send admin notification: {error}"
-        )
+
+def _stock_alert_html(
+    *,
+    site_name: str,
+    heading: str,
+    intro: str,
+    heading_color: str,
+    banner_text: str,
+    banner_background: str,
+    banner_color: str,
+    product_name: str,
+    available_quantity: int,
+    quantity: int,
+    reserved_quantity: int,
+) -> str:
+    name = escape(str(product_name))
+    site = escape(site_name)
+
+    return f"""
+    <div
+        style="
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 28px;
+            color: #1F2521;
+        "
+    >
+        <div style="padding-bottom: 18px; border-bottom: 1px solid #E3E5DF;">
+            <h2 style="margin: 0; color: {heading_color};">{heading}</h2>
+
+            <p style="margin: 8px 0 0; color: #737A74;">{intro}</p>
+        </div>
+
+        <div style="padding: 22px 0;">
+            <p><strong>Product:</strong> {name}</p>
+            <p><strong>Available:</strong> {int(available_quantity)}</p>
+            <p><strong>On hand:</strong> {int(quantity)}</p>
+            <p><strong>Reserved:</strong> {int(reserved_quantity)}</p>
+        </div>
+
+        <div
+            style="
+                padding: 18px;
+                background: {banner_background};
+                border-radius: 10px;
+                color: {banner_color};
+            "
+        >
+            <strong>{banner_text}</strong>
+        </div>
+
+        <p style="margin-top: 24px; font-size: 13px; color: #737A74;">
+            This is an automatic {site} inventory notification.
+        </p>
+    </div>
+    """
+
+
+def _stock_alert_text(
+    *,
+    heading: str,
+    product_name: str,
+    available_quantity: int,
+    quantity: int,
+    reserved_quantity: int,
+) -> str:
+    return (
+        f"{heading}\n\n"
+        f"Product: {_single_line(product_name)}\n"
+        f"Available: {available_quantity}\n"
+        f"On hand: {quantity}\n"
+        f"Reserved: {reserved_quantity}\n"
+    )
+
 
 def send_low_stock_notification(
     product_name: str,
     available_quantity: int,
     quantity: int,
     reserved_quantity: int,
-):
+    site_name: str = "TerraLens",
+) -> None:
     send_admin_notification(
         subject=f"⚠️ Low stock — {product_name}",
-        html=f"""
-        <div
-            style="
-                font-family: Arial, sans-serif;
-                max-width: 600px;
-                margin: 0 auto;
-                padding: 28px;
-                color: #1F2521;
-            "
-        >
-            <div
-                style="
-                    padding-bottom: 18px;
-                    border-bottom: 1px solid #E3E5DF;
-                "
-            >
-                <h2 style="margin: 0; color: #C62828;">
-                    ⚠️ Low Stock Alert
-                </h2>
-
-                <p style="margin: 8px 0 0; color: #737A74;">
-                    A TerraLens product has reached low stock.
-                </p>
-            </div>
-
-            <div style="padding: 22px 0;">
-                <p>
-                    <strong>Product:</strong>
-                    {product_name}
-                </p>
-
-                <p>
-                    <strong>Available:</strong>
-                    {available_quantity}
-                </p>
-
-                <p>
-                    <strong>On hand:</strong>
-                    {quantity}
-                </p>
-
-                <p>
-                    <strong>Reserved:</strong>
-                    {reserved_quantity}
-                </p>
-            </div>
-
-            <div
-                style="
-                    padding: 18px;
-                    background: #FFF4F4;
-                    border-radius: 10px;
-                    color: #C62828;
-                "
-            >
-                <strong>
-                    Please consider restocking this product.
-                </strong>
-            </div>
-
-            <p
-                style="
-                    margin-top: 24px;
-                    font-size: 13px;
-                    color: #737A74;
-                "
-            >
-                This is an automatic TerraLens inventory notification.
-            </p>
-        </div>
-        """,
+        html=_stock_alert_html(
+            site_name=site_name,
+            heading="⚠️ Low Stock Alert",
+            intro=f"A {escape(site_name)} product has reached low stock.",
+            heading_color="#C62828",
+            banner_text="Please consider restocking this product.",
+            banner_background="#FFF4F4",
+            banner_color="#C62828",
+            product_name=product_name,
+            available_quantity=available_quantity,
+            quantity=quantity,
+            reserved_quantity=reserved_quantity,
+        ),
+        text=_stock_alert_text(
+            heading="Low stock alert",
+            product_name=product_name,
+            available_quantity=available_quantity,
+            quantity=quantity,
+            reserved_quantity=reserved_quantity,
+        ),
     )
 
 
@@ -135,78 +178,28 @@ def send_out_of_stock_notification(
     product_name: str,
     quantity: int,
     reserved_quantity: int,
-):
+    site_name: str = "TerraLens",
+) -> None:
     send_admin_notification(
         subject=f"🚨 Out of stock — {product_name}",
-        html=f"""
-        <div
-            style="
-                font-family: Arial, sans-serif;
-                max-width: 600px;
-                margin: 0 auto;
-                padding: 28px;
-                color: #1F2521;
-            "
-        >
-            <div
-                style="
-                    padding-bottom: 18px;
-                    border-bottom: 1px solid #E3E5DF;
-                "
-            >
-                <h2 style="margin: 0; color: #B71C1C;">
-                    🚨 Out of Stock
-                </h2>
-
-                <p style="margin: 8px 0 0; color: #737A74;">
-                    A TerraLens product is now out of stock.
-                </p>
-            </div>
-
-            <div style="padding: 22px 0;">
-                <p>
-                    <strong>Product:</strong>
-                    {product_name}
-                </p>
-
-                <p>
-                    <strong>Available:</strong>
-                    0
-                </p>
-
-                <p>
-                    <strong>On hand:</strong>
-                    {quantity}
-                </p>
-
-                <p>
-                    <strong>Reserved:</strong>
-                    {reserved_quantity}
-                </p>
-            </div>
-
-            <div
-                style="
-                    padding: 18px;
-                    background: #FFF1F1;
-                    border-radius: 10px;
-                    color: #B71C1C;
-                "
-            >
-                <strong>
-                    This product is currently unavailable for purchase.
-                </strong>
-            </div>
-
-            <p
-                style="
-                    margin-top: 24px;
-                    font-size: 13px;
-                    color: #737A74;
-                "
-            >
-                This is an automatic TerraLens inventory notification.
-            </p>
-        </div>
-        """,
+        html=_stock_alert_html(
+            site_name=site_name,
+            heading="🚨 Out of Stock",
+            intro=f"A {escape(site_name)} product is now out of stock.",
+            heading_color="#B71C1C",
+            banner_text="This product is currently unavailable for purchase.",
+            banner_background="#FFF1F1",
+            banner_color="#B71C1C",
+            product_name=product_name,
+            available_quantity=0,
+            quantity=quantity,
+            reserved_quantity=reserved_quantity,
+        ),
+        text=_stock_alert_text(
+            heading="Out of stock",
+            product_name=product_name,
+            available_quantity=0,
+            quantity=quantity,
+            reserved_quantity=reserved_quantity,
+        ),
     )

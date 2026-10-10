@@ -1,5 +1,6 @@
+import { useContext, useState } from "react";
 import { Link } from "react-router-dom";
-import { useContext } from "react";
+
 import { SiteBrandingContext } from "../context/site-branding-context";
 
 function BrandMark({
@@ -10,37 +11,40 @@ function BrandMark({
   alwaysShowName = false,
   fallbackLogo = false,
 }) {
-  const branding = useContext(SiteBrandingContext);
+  const branding = useContext(SiteBrandingContext) || {};
+
+  const { siteName = "TerraLens" } = branding;
+
   const logoUrl =
     logoType === "footer"
       ? branding.footerLogoUrl || branding.logoUrl
       : branding.logoUrl;
+
   const displayLogo = logoUrl || (fallbackLogo ? "/favicon.svg" : null);
-  const { siteName = "TerraLens" } = branding;
+
+  const [failedLogo, setFailedLogo] = useState(null);
+
+  const showLogo = Boolean(displayLogo) && failedLogo !== displayLogo;
+  const showName = !showLogo || alwaysShowName;
+
   return (
     <Link
       to="/"
       aria-label={`${siteName} home`}
-      className={`inline-flex items-center ${className}`}
+      className={`inline-flex items-center focus:outline-none focus:ring-2 focus:ring-[#486B57] focus:ring-offset-2 ${className}`}
     >
-      {displayLogo ? (
+      {showLogo && (
         <img
           src={displayLogo}
-          alt={`${siteName} logo`}
+          alt={showName ? "" : `${siteName} logo`}
           className={imageClassName}
-          onError={(event) => {
-            event.currentTarget.hidden = true;
-            if (!alwaysShowName) event.currentTarget.nextSibling.hidden = false;
-          }}
+          onError={() => setFailedLogo(displayLogo)}
         />
-      ) : null}
-      <span
-        hidden={Boolean(displayLogo) && !alwaysShowName}
-        className={nameClassName}
-      >
-        {siteName}
-      </span>
+      )}
+
+      {showName && <span className={nameClassName}>{siteName}</span>}
     </Link>
   );
 }
+
 export default BrandMark;

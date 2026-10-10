@@ -2,14 +2,16 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+MAX_CART_ITEM_QUANTITY = 100
+
 
 class CartItemCreate(BaseModel):
-    product_id: int
-    quantity: int = Field(gt=0)
+    product_id: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=MAX_CART_ITEM_QUANTITY)
 
 
 class CartItemUpdate(BaseModel):
-    quantity: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=MAX_CART_ITEM_QUANTITY)
 
 
 class CartItemResponse(BaseModel):

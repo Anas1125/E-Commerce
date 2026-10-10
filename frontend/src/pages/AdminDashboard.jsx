@@ -15,85 +15,160 @@ import {
   AdminTable,
   Badge,
 } from "../components/AdminUI";
+
 const shortcuts = [
   [Boxes, "Products", "/admin/products"],
   [ClipboardList, "Orders", "/admin/orders"],
   [Users, "Customers", "/admin/customers"],
   [Warehouse, "Inventory", "/admin/inventory"],
 ];
+
+const LOW_STOCK_THRESHOLD = 5;
+const RECENT_ORDER_LIMIT = 6;
+
+const SECTIONS = [
+  ["products", "products", () => api.get("/products/")],
+  ["inventory", "inventory", () => api.get("/admin/inventory/")],
+  [
+    "orders",
+    "orders",
+    () =>
+      api.get("/admin/orders/", {
+        params: { page: 1, limit: RECENT_ORDER_LIMIT },
+      }),
+  ],
+  ["customers", "customers", () => api.get("/admin/customers/")],
+  [
+    "refunds",
+    "refunds",
+    () => api.get("/admin/refunds/", { params: { refund_status: "requested" } }),
+  ],
+];
+
+function formatDate(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-IN");
+}
+
+function customerName(user) {
+  if (!user) return "—";
+  return `${user.first_name || ""} ${user.last_name || ""}`.trim() || "—";
+}
+
+const emptyData = {
+  products: null,
+  inventory: null,
+  orders: null,
+  customers: null,
+  refunds: null,
+};
+
 function AdminDashboard() {
-  const [data, setData] = useState({
-    products: null,
-    inventory: null,
-    orders: null,
-    customers: null,
-    refunds: null,
-  });
+  const [data, setData] = useState(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [failed, setFailed] = useState([]);
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     let alive = true;
-    Promise.allSettled([
-      api.get("/products/"),
-      api.get("/admin/inventory/"),
-      api.get("/admin/orders/?page=1&limit=8"),
-      api.get("/admin/customers/"),
-      api.get("/admin/refunds/?refund_status=requested"),
-    ])
+    Promise.allSettled(SECTIONS.map(([, , request]) => request()))
       .then((results) => {
         if (!alive) return;
-        const vals = results.map((x) =>
-          x.status === "fulfilled" ? x.value.data : null,
-        );
-        setData({
-          products: vals[0],
-          inventory: vals[1],
-          orders: vals[2],
-          customers: vals[3],
-          refunds: vals[4],
+
+        const next = { ...emptyData };
+        const failedLabels = [];
+        let denied = false;
+
+        results.forEach((result, index) => {
+          const [key, label] = SECTIONS[index];
+          if (result.status === "fulfilled") {
+            next[key] = result.value.data;
+          } else {
+            failedLabels.push(label);
+            if (result.reason?.response?.status === 403) denied = true;
+          }
         });
-        if (
-          results.some(
-            (x) => x.status === "rejected" && x.reason.response?.status === 403,
-          )
-        )
-          setError(
-            "Admin access was denied. Sign in with an administrator account.",
-          );
+
+        setData(next);
+        setFailed(failedLabels);
+        setError(
+          denied
+            ? "Admin access was denied. Sign in with an administrator account."
+            : "",
+        );
       })
-      .finally(() => alive && setLoading(false));
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
     return () => {
       alive = false;
     };
-  }, []);
-  const lowStock =
-    data.inventory?.filter((x) => x.available_quantity <= 5) || [];
+  }, [reloadKey]);
+
+  const retry = () => {
+    setLoading(true);
+    setError("");
+    setFailed([]);
+    setReloadKey((key) => key + 1);
+  };
+
+  const lowStock = Array.isArray(data.inventory)
+    ? data.inventory.filter(
+        (item) =>
+          Number.isFinite(Number(item.available_quantity)) &&
+          item.available_quantity !== null &&
+          Number(item.available_quantity) <= LOW_STOCK_THRESHOLD,
+      )
+    : [];
+
   const stats = [
     ["Active products", data.products?.length, Boxes],
     ["Tracked inventory", data.inventory?.length, Warehouse],
     ["Orders", data.orders?.total, ClipboardList],
     ["Customers", data.customers?.length, Users],
   ];
+
+  const recentOrders = data.orders?.orders?.slice(0, RECENT_ORDER_LIMIT) || [];
+
   return (
     <>
       <AdminPageHeader
         title="Overview"
         description="A clear view of current store operations."
       />
-      {error && (
+      {error ? (
         <p
           role="alert"
           className="mb-5 rounded-xl bg-[#f8e8e3] p-4 text-sm text-[#8b4033]"
         >
           {error}
         </p>
+      ) : (
+        !loading &&
+        failed.length > 0 && (
+          <div
+            role="alert"
+            className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#f8e8e3] p-4 text-sm text-[#8b4033]"
+          >
+            <span>Couldn’t load: {failed.join(", ")}.</span>
+            <button
+              type="button"
+              onClick={retry}
+              className="button-secondary cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map(([title, value, Icon]) => (
           <AdminPanel key={title} className="p-5">
             <div className="flex items-center justify-between">
               <p className="text-sm text-[#737A74]">{title}</p>
-              <Icon size={18} className="text-[#486B57]" />
+              <Icon size={18} className="text-[#486B57]" aria-hidden="true" />
             </div>
             <p className="mt-4 text-3xl font-semibold">
               {loading ? "—" : (value ?? "—")}
@@ -112,26 +187,25 @@ function AdminDashboard() {
             </div>
             <Link
               to="/admin/orders"
-              className="text-sm font-medium text-[#486B57]"
+              className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57] text-sm font-medium text-[#486B57]"
             >
-              All orders <ArrowRight className="ml-1 inline" size={14} />
+              All orders{" "}
+              <ArrowRight className="ml-1 inline" size={14} aria-hidden="true" />
             </Link>
           </div>
-          {data.orders?.orders?.length ? (
+          {recentOrders.length ? (
             <AdminTable
               headers={["Order", "Customer", "Date", "Total", "Status"]}
             >
-              {data.orders.orders.slice(0, 6).map((o) => (
+              {recentOrders.map((o) => (
                 <tr key={o.id}>
                   <td className="px-5 py-4 font-medium">{o.order_number}</td>
-                  <td className="px-5 py-4">
-                    {o.user.first_name} {o.user.last_name || ""}
-                  </td>
+                  <td className="px-5 py-4">{customerName(o.user)}</td>
                   <td className="px-5 py-4 text-[#737A74]">
-                    {new Date(o.created_at).toLocaleDateString("en-IN")}
+                    {formatDate(o.created_at)}
                   </td>
                   <td className="px-5 py-4">
-                    ₹{Number(o.total_amount).toLocaleString("en-IN")}
+                    ₹{Number(o.total_amount || 0).toLocaleString("en-IN")}
                   </td>
                   <td className="px-5 py-4">
                     <Badge>{o.order_status}</Badge>
@@ -153,7 +227,7 @@ function AdminDashboard() {
             <div className="divide-y divide-[#E3E5DF]">
               <Link
                 to="/admin/refunds"
-                className="flex items-center justify-between p-5"
+                className="flex items-center justify-between rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57] p-5"
               >
                 <span>
                   <span className="block text-sm font-medium">
@@ -169,18 +243,18 @@ function AdminDashboard() {
               </Link>
               <Link
                 to="/admin/inventory"
-                className="flex items-center justify-between p-5"
+                className="flex items-center justify-between rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57] p-5"
               >
                 <span>
                   <span className="block text-sm font-medium">
                     Low available stock
                   </span>
                   <span className="mt-1 block text-xs text-[#737A74]">
-                    5 or fewer available units
+                    {LOW_STOCK_THRESHOLD} or fewer available units
                   </span>
                 </span>
                 <strong className="text-lg">
-                  {data.inventory ? lowStock.length : "—"}
+                  {Array.isArray(data.inventory) ? lowStock.length : "—"}
                 </strong>
               </Link>
             </div>
@@ -192,9 +266,13 @@ function AdminDashboard() {
                 <Link
                   key={to}
                   to={to}
-                  className="flex items-center gap-2 rounded-xl bg-[#F5F5F1] p-3 text-sm hover:bg-[#DCE7DE]"
+                  className="flex items-center gap-2 rounded-xl bg-[#F5F5F1] p-3 text-sm hover:bg-[#DCE7DE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]"
                 >
-                  <Icon size={16} className="text-[#486B57]" />
+                  <Icon
+                    size={16}
+                    className="text-[#486B57]"
+                    aria-hidden="true"
+                  />
                   {label}
                 </Link>
               ))}
@@ -209,4 +287,5 @@ function AdminDashboard() {
     </>
   );
 }
+
 export default AdminDashboard;

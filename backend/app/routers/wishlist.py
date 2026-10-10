@@ -1,12 +1,13 @@
-from decimal import Decimal
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.product import Product
 from app.models.product_image import ProductImage
+from app.models.brand import Brand
+from app.models.inventory import Inventory
 from app.models.user import User
 from app.models.wishlist_item import WishlistItem
 from app.schemas.wishlist import (
@@ -15,142 +16,153 @@ from app.schemas.wishlist import (
 )
 from app.services.dependencies import get_current_user
 
-
 router = APIRouter(
     prefix="/api/wishlist",
     tags=["Wishlist"],
 )
 
+MAX_WISHLIST_ITEMS_RETURNED = 200
 
-@router.get("/", response_model=WishlistResponse)
+
+def _primary_image_url_subquery():
+    return (
+        select(ProductImage.image_url)
+        .where(ProductImage.product_id == Product.id)
+        .order_by(
+            ProductImage.is_primary.desc(),
+            ProductImage.display_order,
+            ProductImage.id,
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _wishlist_query(user_id: int):
+    available_stock = func.coalesce(
+        Inventory.quantity - Inventory.reserved_quantity,
+        0,
+    )
+
+    return (
+        select(
+            WishlistItem.id.label("id"),
+            Product.id.label("product_id"),
+            Product.name.label("product_name"),
+            Product.price.label("price"),
+            Brand.name.label("brand"),
+            available_stock.label("available_stock"),
+            Product.is_active.label("is_active"),
+            _primary_image_url_subquery().label("image_url"),
+        )
+        .join(Product, Product.id == WishlistItem.product_id)
+        .outerjoin(Brand, Brand.id == Product.brand_id)
+        .outerjoin(Inventory, Inventory.product_id == Product.id)
+        .where(
+            WishlistItem.user_id == user_id,
+            Product.is_active.is_(True),
+        )
+    )
+
+
+@router.get(
+    "/",
+    response_model=WishlistResponse,
+    summary="List the current user's wishlist, newest first",
+)
 def get_wishlist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    wishlist_items = db.scalars(
-        select(WishlistItem)
-        .where(WishlistItem.user_id == current_user.id)
+    rows = db.execute(
+        _wishlist_query(current_user.id)
         .order_by(WishlistItem.id.desc())
+        .limit(MAX_WISHLIST_ITEMS_RETURNED)
     ).all()
 
-    items = []
-
-    for wishlist_item in wishlist_items:
-        product = wishlist_item.product
-
-        if not product.is_active:
-            continue
-
-        primary_image = db.scalar(
-            select(ProductImage).where(
-                ProductImage.product_id == product.id,
-                ProductImage.is_primary == True,
-            )
-        )
-
-        items.append(
-            WishlistItemResponse(
-                id=wishlist_item.id,
-                product_id=product.id,
-                product_name=product.name,
-                price=product.price,
-                image_url=(
-                    primary_image.image_url
-                    if primary_image
-                    else None
-                ),
-            )
-        )
-
-    return WishlistResponse(items=items)
+    return WishlistResponse(
+        items=[WishlistItemResponse.model_validate(row) for row in rows]
+    )
 
 
 @router.post(
     "/{product_id}",
     response_model=WishlistItemResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a product to the wishlist (safe to repeat)",
 )
 def add_to_wishlist(
     product_id: int,
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    product = db.scalar(
-        select(Product).where(
+    product_exists = db.scalar(
+        select(Product.id).where(
             Product.id == product_id,
-            Product.is_active == True,
+            Product.is_active.is_(True),
         )
     )
 
-    if product is None:
+    if product_exists is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found",
         )
 
-    existing_item = db.scalar(
-        select(WishlistItem).where(
+    already_saved = db.scalar(
+        select(WishlistItem.id).where(
             WishlistItem.user_id == current_user.id,
             WishlistItem.product_id == product_id,
         )
     )
 
-    if existing_item:
+    if already_saved is not None:
+        response.status_code = status.HTTP_200_OK
+    else:
+        db.add(WishlistItem(user_id=current_user.id, product_id=product_id))
+
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+
+    row = db.execute(
+        _wishlist_query(current_user.id).where(
+            WishlistItem.product_id == product_id
+        )
+    ).first()
+
+    if row is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Product is already in your wishlist",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Product not found",
         )
 
-    wishlist_item = WishlistItem(
-        user_id=current_user.id,
-        product_id=product_id,
-    )
-
-    db.add(wishlist_item)
-    db.commit()
-    db.refresh(wishlist_item)
-
-    primary_image = db.scalar(
-        select(ProductImage).where(
-            ProductImage.product_id == product.id,
-            ProductImage.is_primary == True,
-        )
-    )
-
-    return WishlistItemResponse(
-        id=wishlist_item.id,
-        product_id=product.id,
-        product_name=product.name,
-        price=product.price,
-        image_url=(
-            primary_image.image_url
-            if primary_image
-            else None
-        ),
-    )
+    return WishlistItemResponse.model_validate(row)
 
 
 @router.delete(
     "/{product_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove a product from the wishlist (safe to repeat)",
 )
 def remove_from_wishlist(
     product_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    wishlist_item = db.scalar(
-        select(WishlistItem).where(
+    db.execute(
+        delete(WishlistItem).where(
             WishlistItem.user_id == current_user.id,
             WishlistItem.product_id == product_id,
         )
     )
 
-    if wishlist_item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Product is not in your wishlist",
-        )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
-    db.delete(wishlist_item)
-    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

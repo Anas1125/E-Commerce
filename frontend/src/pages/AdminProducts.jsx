@@ -1,12 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ImagePlus,
-  Pencil,
-  Plus,
-  Search,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ImagePlus, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 
 import useAdminNotice from "../hooks/useAdminNotice";
 import api from "../services/api";
@@ -21,6 +14,10 @@ import {
   Badge,
 } from "../components/AdminUI";
 
+const PRODUCTS_PER_PAGE = 10;
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
 const blank = {
   name: "",
   slug: "",
@@ -33,22 +30,15 @@ const blank = {
 };
 
 function apiErrorMessage(error, fallback) {
-  const detail = error.response?.data?.detail;
+  const detail = error?.response?.data?.detail;
 
-  if (typeof detail === "string") {
-    return detail;
-  }
+  if (typeof detail === "string") return detail;
 
   if (Array.isArray(detail)) {
     const messages = detail
-      .map((item) =>
-        typeof item === "string" ? item : item?.msg,
-      )
+      .map((item) => (typeof item === "string" ? item : item?.msg))
       .filter(Boolean);
-
-    if (messages.length) {
-      return messages.join("; ");
-    }
+    if (messages.length) return messages.join("; ");
   }
 
   if (
@@ -65,159 +55,233 @@ function apiErrorMessage(error, fallback) {
 function AdminProducts() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [inventoryByProductId, setInventoryByProductId] =
-  useState({});
+  const [inventoryByProductId, setInventoryByProductId] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [term, setTerm] = useState("");
   const [page, setPage] = useState(1);
-
-  const PRODUCTS_PER_PAGE = 10;
 
   const [form, setForm] = useState(blank);
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingId, setPendingId] = useState(null);
 
   const [images, setImages] = useState([]);
   const [imagesLoading, setImagesLoading] = useState(false);
+  const imagesRequestRef = useRef(0);
+  const modalRef = useRef(null);
+  const triggerRef = useRef(null);
 
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [selectedPrimary, setSelectedPrimary] =
-    useState(false);
+  const [selected, setSelected] = useState(null);
+  const [selectedPrimary, setSelectedPrimary] = useState(false);
+  const selectedFile = selected?.file ?? null;
+  const imagePreview = selected?.url ?? "";
 
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState("");
   const [imageSuccess, setImageSuccess] = useState("");
 
-  const { notice, notify, clear } =
-    useAdminNotice();
+  const { notice, notify, clear } = useAdminNotice();
 
-  const imagePreview = useMemo(
-    () =>
-      selectedFile
-        ? URL.createObjectURL(selectedFile)
-        : "",
-    [selectedFile],
+  // Revoke the blob URL whenever it is replaced or the component unmounts
+  useEffect(() => {
+    if (!imagePreview) return undefined;
+    return () => URL.revokeObjectURL(imagePreview);
+  }, [imagePreview]);
+
+  // Fetch lives inside the effect; state is only set in promise callbacks.
+  // Inventory comes from one admin call instead of one request per product.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([
+      api.get("/products/"),
+      api.get("/categories/"),
+      api.get("/admin/inventory/"),
+    ])
+      .then(([productsResult, categoriesResult, inventoryResult]) => {
+        if (cancelled) return;
+
+        if (productsResult.status === "fulfilled") {
+          const data = productsResult.value.data;
+          setProducts(Array.isArray(data) ? data : []);
+          setLoadError("");
+        } else {
+          const message = apiErrorMessage(
+            productsResult.reason,
+            "Unable to load products.",
+          );
+          setLoadError(message);
+          notify(message, "error");
+        }
+
+        const missing = [];
+
+        if (categoriesResult.status === "fulfilled") {
+          const data = categoriesResult.value.data;
+          setCategories(Array.isArray(data) ? data : []);
+        } else {
+          missing.push("categories");
+        }
+
+        if (inventoryResult.status === "fulfilled") {
+          const data = inventoryResult.value.data;
+          setInventoryByProductId(
+            Array.isArray(data)
+              ? Object.fromEntries(data.map((row) => [row.product_id, row]))
+              : {},
+          );
+        } else {
+          missing.push("inventory");
+        }
+
+        if (productsResult.status === "fulfilled" && missing.length) {
+          notify(
+            `Could not load ${missing.join(" and ")}. Some details may be missing or approximate.`,
+            "error",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey, notify]);
+
+  const reload = () => setReloadKey((key) => key + 1);
+
+  const retry = () => {
+    setLoading(true);
+    setLoadError("");
+    reload();
+  };
+
+  const categoryNames = useMemo(
+    () => new Map(categories.map((c) => [c.id, c.name])),
+    [categories],
   );
 
-  useEffect(
-    () => () => {
-      if (imagePreview) {
-        URL.revokeObjectURL(imagePreview);
-      }
-    },
-    [imagePreview],
-  );
+  const getInventory = (product) => {
+    const inventory = inventoryByProductId[product.id];
+    const stock = Number(inventory?.quantity ?? product.stock ?? 0);
+    const reserved = Number(inventory?.reserved_quantity ?? 0);
+    return { stock, reserved, available: Math.max(0, stock - reserved) };
+  };
 
-  const load = useCallback(async () => {
-    try {
-      const [
-        productResponse,
-        categoryResponse,
-      ] = await Promise.all([
-        api.get("/products/"),
-        api.get("/categories/"),
-      ]);
+  const dismissModal = useCallback(() => {
+    imagesRequestRef.current += 1; // ignore any in-flight image loads
+    setOpen(false);
+  }, []);
 
-      const productList = productResponse.data;
-
-      setProducts(productList);
-      setCategories(categoryResponse.data);
-
-      const inventoryEntries = await Promise.all(
-        productList.map(async (product) => {
-          try {
-            const response = await api.get(
-              `/products/${product.id}/inventory`,
-            );
-
-            return [
-              product.id,
-              response.data,
-            ];
-          } catch {
-            return [
-              product.id,
-              {
-                quantity: product.stock ?? 0,
-                reserved_quantity: 0,
-              },
-            ];
-          }
-        }),
-      );
-
-      setInventoryByProductId(
-        Object.fromEntries(inventoryEntries),
-      );
-    } catch (error) {
-      notify(
-        apiErrorMessage(
-          error,
-          "Unable to load products.",
-        ),
-        "error",
-      );
-    }
-  }, [notify]);
+  const closeModal = () => {
+    if (busy || imageBusy) return;
+    dismissModal();
+  };
 
   useEffect(() => {
-    const timer = setTimeout(load, 0);
+    if (!open) return undefined;
 
-    return () => clearTimeout(timer);
-  }, [load]);
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        if (!busy && !imageBusy) {
+          dismissModal();
+        }
+        return;
+      }
+
+      if (event.key !== "Tab" || !modalRef.current) {
+        return;
+      }
+
+      const focusable = modalRef.current.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        document.activeElement === last
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+
+    requestAnimationFrame(() => {
+      modalRef.current?.focus();
+    });
+
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKeyDown);
+
+      requestAnimationFrame(() => {
+        triggerRef.current?.focus();
+      });
+    };
+  }, [open, busy, imageBusy, dismissModal]);
 
   const show = (product) => {
-    setEditing(product?.id || null);
+    const inventory = product ? inventoryByProductId[product.id] : null;
 
+    setEditing(product?.id ?? null);
     setForm(
       product
         ? {
-            name: product.name,
-            slug: product.slug,
-            description:
-              product.description || "",
+            name: product.name || "",
+            slug: product.slug || "",
+            description: product.description || "",
             brand: product.brand || "",
-            price: product.price,
-            category_id: String(
-              product.category_id,
-            ),
-            stock: product.stock,
-            reserved_quantity:
-              inventoryByProductId[product.id]
-                ?.reserved_quantity ?? 0,
-                      }
-                    : blank,
-                );
+            price: String(product.price ?? ""),
+            category_id:
+              product.category_id != null ? String(product.category_id) : "",
+            stock: String(inventory?.quantity ?? product.stock ?? 0),
+            reserved_quantity: String(inventory?.reserved_quantity ?? 0),
+          }
+        : blank,
+    );
 
     setImages([]);
-    setSelectedFile(null);
+    setSelected(null);
     setSelectedPrimary(false);
     setImageError("");
     setImageSuccess("");
     setOpen(true);
 
+    const requestId = ++imagesRequestRef.current;
+
     if (product) {
       setImagesLoading(true);
-
       api
-        .get(
-          `/products/${product.id}/images`,
-        )
-        .then((response) =>
-          setImages(response.data),
-        )
-        .catch((error) =>
+        .get(`/products/${product.id}/images`)
+        .then((response) => {
+          if (imagesRequestRef.current !== requestId) return;
+          setImages(Array.isArray(response.data) ? response.data : []);
+        })
+        .catch((error) => {
+          if (imagesRequestRef.current !== requestId) return;
           setImageError(
-            apiErrorMessage(
-              error,
-              "Unable to load product images.",
-            ),
-          ),
-        )
-        .finally(() =>
-          setImagesLoading(false),
-        );
+            apiErrorMessage(error, "Unable to load product images."),
+          );
+        })
+        .finally(() => {
+          if (imagesRequestRef.current === requestId) setImagesLoading(false);
+        });
     } else {
       setImagesLoading(false);
     }
@@ -225,116 +289,77 @@ function AdminProducts() {
 
   const selectImage = (event) => {
     const file = event.target.files?.[0];
-
     event.target.value = "";
 
     setImageError("");
     setImageSuccess("");
 
-    if (!file) {
+    if (!file) return;
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setSelected(null);
+      setImageError("Choose a JPG, JPEG, PNG, or WebP image.");
       return;
     }
 
-    if (
-      !new Set([
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-      ]).has(file.type)
-    ) {
-      setSelectedFile(null);
-      setImageError(
-        "Choose a JPG, JPEG, PNG, or WebP image.",
-      );
+    if (file.size > MAX_IMAGE_BYTES) {
+      setSelected(null);
+      setImageError("Choose an image that is 10 MB or smaller.");
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      setSelectedFile(null);
-      setImageError(
-        "Choose an image that is 10 MB or smaller.",
-      );
-      return;
-    }
-
-    setSelectedFile(file);
-
-    setSelectedPrimary(
-      !images.some(
-        (image) => image.is_primary,
-      ),
-    );
+    setSelected({ file, url: URL.createObjectURL(file) });
+    setSelectedPrimary(!images.some((image) => image.is_primary));
   };
 
+  // Returns true on success, false on failure (never throws)
   const uploadImage = async (
     productId,
     file = selectedFile,
     primary = selectedPrimary,
   ) => {
-    if (!file) {
-      return;
-    }
+    if (!file) return true;
 
     setImageBusy(true);
     setImageError("");
     setImageSuccess("");
 
     const data = new FormData();
-
     data.append("file", file);
-    data.append(
-      "is_primary",
-      String(primary),
-    );
-    data.append(
-      "display_order",
-      String(images.length),
-    );
+    data.append("is_primary", String(primary));
+    data.append("display_order", String(images.length));
 
     try {
-      await api.post(
-        `/products/${productId}/images/upload`,
-        data,
-        {
-          headers: {
-            "Content-Type":
-              "multipart/form-data",
-          },
-        },
-      );
-
-      const response = await api.get(
-        `/products/${productId}/images`,
-      );
-
-      setImages(response.data);
-      setSelectedFile(null);
-
-      setImageSuccess(
-        "Image uploaded successfully.",
-      );
-
-      notify("Product image uploaded.");
+      // Don't set Content-Type manually; the browser/axios adds the boundary
+      await api.post(`/products/${productId}/images/upload`, data);
     } catch (error) {
-      const message = apiErrorMessage(
-        error,
-        "Unable to upload this image.",
+      setImageError(apiErrorMessage(error, "Unable to upload this image."));
+      setImageBusy(false);
+      return false;
+    }
+
+    setSelected(null);
+    setImageSuccess("Image uploaded successfully.");
+    notify("Product image uploaded.");
+
+    try {
+      const response = await api.get(`/products/${productId}/images`);
+      setImages(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      setImageError(
+        apiErrorMessage(
+          error,
+          "Image uploaded, but the image list could not be refreshed.",
+        ),
       );
-
-      setImageError(message);
-
-      throw error;
     } finally {
       setImageBusy(false);
     }
+    return true;
   };
 
-  const setExistingPrimary = async (
-    image,
-  ) => {
-    if (image.is_primary) {
-      return;
-    }
+  const setExistingPrimary = async (image) => {
+    if (image.is_primary || imageBusy) return;
 
     setImageBusy(true);
     setImageError("");
@@ -342,26 +367,20 @@ function AdminProducts() {
     try {
       const response = await api.patch(
         `/products/${editing}/images/${image.id}`,
-        {
-          is_primary: true,
-        },
+        { is_primary: true },
       );
 
       setImages((current) =>
         current.map((item) => ({
           ...item,
-          is_primary:
-            item.id === response.data.id,
+          is_primary: item.id === response.data.id,
         })),
       );
 
       notify("Primary image updated.");
     } catch (error) {
       setImageError(
-        apiErrorMessage(
-          error,
-          "Unable to update the primary image.",
-        ),
+        apiErrorMessage(error, "Unable to update the primary image."),
       );
     } finally {
       setImageBusy(false);
@@ -369,36 +388,19 @@ function AdminProducts() {
   };
 
   const removeImage = async (image) => {
-    if (
-      !window.confirm(
-        "Remove this product image?",
-      )
-    ) {
-      return;
-    }
+    if (imageBusy) return;
+    if (!window.confirm("Remove this product image?")) return;
 
     setImageBusy(true);
     setImageError("");
 
     try {
-      await api.delete(
-        `/products/${editing}/images/${image.id}`,
-      );
-
-      const response = await api.get(
-        `/products/${editing}/images`,
-      );
-
-      setImages(response.data);
-
+      await api.delete(`/products/${editing}/images/${image.id}`);
+      const response = await api.get(`/products/${editing}/images`);
+      setImages(Array.isArray(response.data) ? response.data : []);
       notify("Product image removed.");
     } catch (error) {
-      setImageError(
-        apiErrorMessage(
-          error,
-          "Unable to remove this image.",
-        ),
-      );
+      setImageError(apiErrorMessage(error, "Unable to remove this image."));
     } finally {
       setImageBusy(false);
     }
@@ -406,146 +408,144 @@ function AdminProducts() {
 
   const save = async (event) => {
     event.preventDefault();
+    if (busy) return;
+
+    const name = form.name.trim();
+    const slug = form.slug.trim();
+    const price = Number(form.price);
+    const stock = Number(form.stock);
+    const reserved = Number(form.reserved_quantity);
+
+    if (!name || !slug) {
+      notify("Name and slug are required.", "error");
+      return;
+    }
+    if (!form.category_id) {
+      notify("Select a category.", "error");
+      return;
+    }
+    if (!(price > 0)) {
+      notify("Price must be greater than zero.", "error");
+      return;
+    }
+    if (!Number.isInteger(stock) || stock < 0) {
+      notify("Stock must be a whole number of 0 or more.", "error");
+      return;
+    }
+    if (!Number.isInteger(reserved) || reserved < 0) {
+      notify("Reserved quantity must be a whole number of 0 or more.", "error");
+      return;
+    }
+    if (reserved > stock) {
+      notify("Reserved quantity cannot be higher than stock.", "error");
+      return;
+    }
 
     setBusy(true);
     setImageError("");
 
-    const payload = {
-      ...form,
-      description:
-        form.description || null,
-      brand: form.brand || null,
-      price: Number(form.price),
-      category_id: Number(form.category_id),
-      stock: Number(form.stock),
-    };
+    const wasEditing = Boolean(editing);
+    let stage = "product";
 
     try {
-      const response = editing
-        ? await api.put(
-            `/products/${editing}`,
-            payload,
-          )
-        : await api.post(
-            "/products/",
-            payload,
-          );
+      const payload = {
+        name,
+        slug,
+        description: form.description.trim() || null,
+        brand: form.brand.trim() || null,
+        price,
+        category_id: Number(form.category_id),
+        stock,
+      };
+
+      const response = wasEditing
+        ? await api.put(`/products/${editing}`, payload)
+        : await api.post("/products/", payload);
 
       const productId = response.data.id;
-
-      await api.put(
-        `/products/${productId}/inventory`,
-        {
-          quantity: Number(form.stock),
-          reserved_quantity: Number(
-            form.reserved_quantity,
-          ),
-        },
-      );
-
+      // Remember the id right away so a retry updates instead of duplicating
       setEditing(productId);
+
+      stage = "inventory";
+      await api.put(`/products/${productId}/inventory`, {
+        quantity: stock,
+        reserved_quantity: reserved,
+      });
+
       setPage(1);
+      reload();
 
-      await load();
-
+      stage = "image";
       if (selectedFile) {
-        try {
-          await uploadImage(
-            productId,
-            selectedFile,
-            selectedPrimary,
-          );
-        } catch {
+        const uploaded = await uploadImage(
+          productId,
+          selectedFile,
+          selectedPrimary,
+        );
+        if (!uploaded) {
           notify(
             "Product saved, but the image still needs to be uploaded.",
             "error",
           );
-
           return;
         }
       }
 
-      setOpen(false);
-
-      notify(
-        editing
-          ? "Product updated."
-          : "Product created.",
-      );
+      dismissModal();
+      notify(wasEditing ? "Product updated." : "Product created.");
     } catch (error) {
-      notify(
-        apiErrorMessage(
-          error,
-          "Product could not be saved.",
-        ),
-        "error",
-      );
+      const message = apiErrorMessage(error, "Product could not be saved.");
+      if (stage === "inventory") {
+        reload();
+        notify(
+          `Product saved, but inventory could not be updated: ${message}`,
+          "error",
+        );
+      } else {
+        notify(message, "error");
+      }
     } finally {
       setBusy(false);
     }
   };
 
-  const removeProduct = async (
-    product,
-  ) => {
-    if (
-      !window.confirm(
-        `Deactivate “${product.name}”?`,
-      )
-    ) {
-      return;
-    }
+  const removeProduct = async (product) => {
+    if (pendingId) return;
+    if (!window.confirm(`Deactivate “${product.name}”?`)) return;
 
+    setPendingId(product.id);
     try {
-      await api.delete(
-        `/products/${product.id}`,
-      );
-
+      await api.delete(`/products/${product.id}`);
       notify("Product deactivated.");
-
       setPage(1);
-
-      await load();
+      reload();
     } catch (error) {
-      notify(
-        apiErrorMessage(
-          error,
-          "Could not deactivate product.",
-        ),
-        "error",
-      );
+      notify(apiErrorMessage(error, "Could not deactivate product."), "error");
+    } finally {
+      setPendingId(null);
     }
   };
 
-  // Search the COMPLETE product list first.
-  const filtered = products.filter(
-    (product) =>
-      `${product.name} ${
-        product.brand || ""
-      } ${product.slug}`
-        .toLowerCase()
-        .includes(term.toLowerCase()),
+  // Search the COMPLETE product list first, then paginate.
+  const needle = term.trim().toLowerCase();
+  const filtered = products.filter((product) =>
+    `${product.name} ${product.brand || ""} ${product.slug}`
+      .toLowerCase()
+      .includes(needle),
   );
 
-  // Pagination happens AFTER searching.
-  const totalPages = Math.max(
-    1,
-    Math.ceil(
-      filtered.length /
-        PRODUCTS_PER_PAGE,
-    ),
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PRODUCTS_PER_PAGE));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * PRODUCTS_PER_PAGE;
+  const paginatedProducts = filtered.slice(
+    startIndex,
+    startIndex + PRODUCTS_PER_PAGE,
   );
 
-  const startIndex =
-    (page - 1) *
-    PRODUCTS_PER_PAGE;
-
-  const paginatedProducts =
-    filtered.slice(
-      startIndex,
-      startIndex +
-        PRODUCTS_PER_PAGE,
-    );
+  const formAvailable = Math.max(
+    0,
+    (Number(form.stock) || 0) - (Number(form.reserved_quantity) || 0),
+  );
 
   return (
     <>
@@ -554,18 +554,17 @@ function AdminProducts() {
         description="Create and maintain the product catalogue."
       >
         <button
+          type="button"
+          ref={triggerRef}
           onClick={() => show(null)}
-          className="button-primary inline-flex gap-2 cursor-pointer"
+          className="button-primary inline-flex cursor-pointer gap-2"
         >
-          <Plus size={16} />
+          <Plus size={16} aria-hidden="true" />
           Add product
         </button>
       </AdminPageHeader>
 
-      <AdminNotice
-        notice={notice}
-        onClose={clear}
-      />
+      <AdminNotice notice={notice} onClose={clear} />
 
       <AdminPanel>
         <div className="flex items-center justify-between gap-4 border-b border-[#E3E5DF] p-4">
@@ -573,20 +572,15 @@ function AdminProducts() {
             <Search
               size={16}
               className="text-[#737A74]"
+              aria-hidden="true"
             />
-
             <input
               aria-label="Search products"
               className="w-full bg-transparent py-2 text-sm outline-none"
-              placeholder="Search name or brand"
+              placeholder="Search name, brand or slug"
               value={term}
               onChange={(event) => {
-                setTerm(
-                  event.target.value,
-                );
-
-                // Always start from page 1
-                // when the search changes.
+                setTerm(event.target.value);
                 setPage(1);
               }}
             />
@@ -597,7 +591,24 @@ function AdminProducts() {
           </span>
         </div>
 
-        {filtered.length ? (
+        {loading ? (
+          <div className="px-5 py-8 text-sm text-[#737A74]">
+            Loading products…
+          </div>
+        ) : loadError ? (
+          <div className="px-5 py-8">
+            <div role="alert" className="text-sm text-[#8b4033]">
+              {loadError}
+            </div>
+            <button
+              type="button"
+              onClick={retry}
+              className="button-secondary mt-3"
+            >
+              Retry
+            </button>
+          </div>
+        ) : filtered.length ? (
           <>
             <AdminTable
               headers={[
@@ -609,185 +620,109 @@ function AdminProducts() {
                 "Actions",
               ]}
             >
-              {paginatedProducts.map(
-                (product) => (
-                  <tr
-                    key={product.id}
-                  >
+              {paginatedProducts.map((product) => {
+                const { stock, reserved, available } = getInventory(product);
+                return (
+                  <tr key={product.id}>
                     <td className="px-5 py-4">
-                      <span className="font-medium">
-                        {product.name}
-                      </span>
-
+                      <span className="font-medium">{product.name}</span>
                       <span className="mt-1 block text-xs text-[#737A74]">
                         {product.slug}
                       </span>
                     </td>
 
+                    <td className="px-5 py-4">{product.brand || "—"}</td>
+
                     <td className="px-5 py-4">
-                      {product.brand ||
-                        "—"}
+                      {categoryNames.get(product.category_id) || "—"}
                     </td>
 
                     <td className="px-5 py-4">
-                      {categories.find(
-                        (category) =>
-                          category.id ===
-                          product.category_id,
-                      )?.name || "—"}
+                      ₹{Number(product.price).toLocaleString("en-IN")}
                     </td>
 
                     <td className="px-5 py-4">
-                      ₹
-                      {Number(
-                        product.price,
-                      ).toLocaleString(
-                        "en-IN",
-                      )}
+                      <div className="w-32 space-y-1.5 text-xs">
+                        <div className="grid grid-cols-[1fr_40px] items-center gap-2">
+                          <span className="text-[#737A74]">Stock</span>
+                          <span className="flex h-8 w-10 items-center justify-center rounded-full bg-[#DCE7DE] font-semibold text-[#486B57]">
+                            {stock}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-[1fr_40px] items-center gap-2">
+                          <span className="text-[#737A74]">Reserved</span>
+                          <span className="text-center font-medium text-[#8b4033]">
+                            {reserved}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-[1fr_40px] items-center gap-2">
+                          <span className="text-[#737A74]">Available</span>
+                          <span className="text-center font-semibold text-[#486B57]">
+                            {available}
+                          </span>
+                        </div>
+                      </div>
                     </td>
-
-                      <td className="px-5 py-4">
-                        {(() => {
-                          const inventory =
-                            inventoryByProductId[product.id];
-
-                          const stock = Number(
-                            inventory?.quantity ?? product.stock ?? 0,
-                          );
-
-                          const reserved = Number(
-                            inventory?.reserved_quantity ?? 0,
-                          );
-
-                          const available = Math.max(
-                            0,
-                            stock - reserved,
-                          );
-
-                          return (
-                            <div className="w-32 space-y-1.5 text-xs">
-                              <div className="grid grid-cols-[1fr_40px] items-center gap-2">
-                                <span className="text-[#737A74]">
-                                  Stock
-                                </span>
-
-                                <span className="flex h-8 w-10 items-center justify-center rounded-full bg-[#DCE7DE] font-semibold text-[#486B57]">
-                                  {stock}
-                                </span>
-                              </div>
-
-                              <div className="grid grid-cols-[1fr_40px] items-center gap-2">
-                                <span className="text-[#737A74]">
-                                  Reserved
-                                </span>
-
-                                <span className="text-center font-medium text-[#8b4033]">
-                                  {reserved}
-                                </span>
-                              </div>
-
-                              <div className="grid grid-cols-[1fr_40px] items-center gap-2">
-                                <span className="text-[#737A74]">
-                                  Available
-                                </span>
-
-                                <span className="text-center font-semibold text-[#486B57]">
-                                  {available}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </td>
 
                     <td className="px-5 py-4">
                       <div className="flex gap-2">
                         <button
+                          type="button"
                           aria-label={`Edit ${product.name}`}
-                          className="rounded-lg p-2 hover:bg-[#DCE7DE] cursor-pointer"
-                          onClick={() =>
-                            show(product)
-                          }
+                          className="cursor-pointer rounded-lg p-2 hover:bg-[#DCE7DE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]"
+                          onClick={(event) => {
+                            triggerRef.current = event.currentTarget;
+                            show(product);
+                          }}
                         >
-                          <Pencil
-                            size={16}
-                          />
+                          <Pencil size={16} aria-hidden="true" />
                         </button>
 
                         <button
+                          type="button"
                           aria-label={`Deactivate ${product.name}`}
-                          className="rounded-lg p-2 text-[#8b4033] hover:bg-[#f8e8e3] cursor-pointer"
-                          onClick={() =>
-                            removeProduct(
-                              product,
-                            )
-                          }
+                          disabled={pendingId === product.id}
+                          className="cursor-pointer rounded-lg p-2 text-[#8b4033] hover:bg-[#f8e8e3] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b4033]"
+                          onClick={() => removeProduct(product)}
                         >
-                          <Trash2
-                            size={16}
-                          />
+                          <Trash2 size={16} aria-hidden="true" />
                         </button>
                       </div>
                     </td>
                   </tr>
-                ),
-              )}
+                );
+              })}
             </AdminTable>
 
             {totalPages > 1 && (
               <div className="flex flex-col gap-3 border-t border-[#E3E5DF] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-[#737A74]">
-                  Showing{" "}
-                  {startIndex + 1}{" "}
-                  to{" "}
-                  {Math.min(
-                    startIndex +
-                      PRODUCTS_PER_PAGE,
-                    filtered.length,
-                  )}{" "}
-                  of {filtered.length}{" "}
-                  products
+                  Showing {startIndex + 1} to{" "}
+                  {Math.min(startIndex + PRODUCTS_PER_PAGE, filtered.length)} of{" "}
+                  {filtered.length} products
                 </p>
 
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={page === 1}
-                    onClick={() =>
-                      setPage(
-                        (current) =>
-                          Math.max(
-                            1,
-                            current - 1,
-                          ),
-                      )
-                    }
-                    className="rounded-lg border border-[#E3E5DF] px-3 py-2 text-sm font-medium text-[#486B57] transition hover:bg-[#F0F4EF] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                    disabled={currentPage === 1}
+                    onClick={() => setPage(Math.max(1, currentPage - 1))}
+                    className="cursor-pointer rounded-lg border border-[#E3E5DF] px-3 py-2 text-sm font-medium text-[#486B57] transition hover:bg-[#F0F4EF] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Previous
                   </button>
 
                   <span className="min-w-20 text-center text-sm text-[#737A74]">
-                    Page {page} of{" "}
-                    {totalPages}
+                    Page {currentPage} of {totalPages}
                   </span>
 
                   <button
                     type="button"
-                    disabled={
-                      page ===
-                      totalPages
-                    }
+                    disabled={currentPage === totalPages}
                     onClick={() =>
-                      setPage(
-                        (current) =>
-                          Math.min(
-                            totalPages,
-                            current + 1,
-                          ),
-                      )
+                      setPage(Math.min(totalPages, currentPage + 1))
                     }
-                    className="rounded-lg border border-[#E3E5DF] px-3 py-2 text-sm font-medium text-[#486B57] transition hover:bg-[#F0F4EF] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                    className="cursor-pointer rounded-lg border border-[#E3E5DF] px-3 py-2 text-sm font-medium text-[#486B57] transition hover:bg-[#F0F4EF] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Next
                   </button>
@@ -797,30 +732,40 @@ function AdminProducts() {
           </>
         ) : (
           <AdminEmpty>
-            No products match this search.
+            {needle ? "No products match this search." : "No products yet."}
           </AdminEmpty>
         )}
       </AdminPanel>
 
       {open && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-4">
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="product-modal-title"
+        >
           <form
+            ref={modalRef}
+            tabIndex={-1}
             onSubmit={save}
             className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 sm:p-8"
           >
             <div className="flex justify-between">
-              <h2 className="text-xl font-semibold">
-                {editing
-                  ? "Edit product"
-                  : "Add product"}
+              <h2
+                id="product-modal-title"
+                className="text-xl font-semibold"
+              >
+                {editing ? "Edit product" : "Add product"}
               </h2>
 
               <button
                 type="button"
-                className="text-sm text-[#486B57] cursor-pointer"
-                onClick={() =>
-                  setOpen(false)
-                }
+                disabled={busy || imageBusy}
+                className="cursor-pointer text-sm text-[#486B57] disabled:opacity-50"
+                onClick={(event) => {
+                  triggerRef.current = event.currentTarget;
+                  show(null);
+                }}
               >
                 Close
               </button>
@@ -834,10 +779,7 @@ function AdminProducts() {
                   className="field mt-2"
                   value={form.name}
                   onChange={(event) =>
-                    setForm({
-                      ...form,
-                      name: event.target.value,
-                    })
+                    setForm({ ...form, name: event.target.value })
                   }
                 />
               </AdminField>
@@ -849,10 +791,7 @@ function AdminProducts() {
                   className="field mt-2"
                   value={form.slug}
                   onChange={(event) =>
-                    setForm({
-                      ...form,
-                      slug: event.target.value,
-                    })
+                    setForm({ ...form, slug: event.target.value })
                   }
                 />
               </AdminField>
@@ -862,10 +801,7 @@ function AdminProducts() {
                   className="field mt-2"
                   value={form.brand}
                   onChange={(event) =>
-                    setForm({
-                      ...form,
-                      brand: event.target.value,
-                    })
+                    setForm({ ...form, brand: event.target.value })
                   }
                 />
               </AdminField>
@@ -874,31 +810,17 @@ function AdminProducts() {
                 <select
                   required
                   className="field mt-2"
-                  value={
-                    form.category_id
-                  }
+                  value={form.category_id}
                   onChange={(event) =>
-                    setForm({
-                      ...form,
-                      category_id:
-                        event.target.value,
-                    })
+                    setForm({ ...form, category_id: event.target.value })
                   }
                 >
-                  <option value="">
-                    Select category
-                  </option>
-
-                  {categories.map(
-                    (category) => (
-                      <option
-                        key={category.id}
-                        value={category.id}
-                      >
-                        {category.name}
-                      </option>
-                    ),
-                  )}
+                  <option value="">Select category</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
                 </select>
               </AdminField>
 
@@ -911,10 +833,7 @@ function AdminProducts() {
                   className="field mt-2"
                   value={form.price}
                   onChange={(event) =>
-                    setForm({
-                      ...form,
-                      price: event.target.value,
-                    })
+                    setForm({ ...form, price: event.target.value })
                   }
                 />
               </AdminField>
@@ -928,10 +847,7 @@ function AdminProducts() {
                   className="field mt-2"
                   value={form.stock}
                   onChange={(event) =>
-                    setForm({
-                      ...form,
-                      stock: event.target.value,
-                    })
+                    setForm({ ...form, stock: event.target.value })
                   }
                 />
               </AdminField>
@@ -945,28 +861,37 @@ function AdminProducts() {
                   className="field mt-2"
                   value={form.reserved_quantity}
                   onChange={(event) =>
-                    setForm({
-                      ...form,
-                      reserved_quantity:
-                        event.target.value,
-                    })
+                    setForm({ ...form, reserved_quantity: event.target.value })
                   }
                 />
               </AdminField>
+
+              <div className="flex items-center justify-between rounded-xl border border-[#E3E5DF] bg-[#F7F9F6] p-4">
+                <div>
+                  <p className="text-sm font-semibold text-[#212121]">
+                    Available quantity
+                  </p>
+                  <p className="mt-1 text-xs text-[#737A74]">
+                    Stock minus reserved quantity
+                  </p>
+                </div>
+
+                <span
+                  className={`text-xl font-bold ${
+                    formAvailable > 0 ? "text-[#486B57]" : "text-[#8b4033]"
+                  }`}
+                >
+                  {formAvailable}
+                </span>
+              </div>
 
               <div className="sm:col-span-2">
                 <AdminField label="Description">
                   <textarea
                     className="field mt-2 min-h-24"
-                    value={
-                      form.description
-                    }
+                    value={form.description}
                     onChange={(event) =>
-                      setForm({
-                        ...form,
-                        description:
-                          event.target.value,
-                      })
+                      setForm({ ...form, description: event.target.value })
                     }
                   />
                 </AdminField>
@@ -975,110 +900,73 @@ function AdminProducts() {
 
             <section className="mt-7 border-t border-[#E3E5DF] pt-5">
               <div>
-                <h3 className="font-semibold">
-                  Product images
-                </h3>
-
+                <h3 className="font-semibold">Product images</h3>
                 <p className="mt-1 text-xs leading-5 text-[#737A74]">
-                  Choose JPG, JPEG, PNG,
-                  or WebP images up to
-                  10 MB.
+                  Choose JPG, JPEG, PNG, or WebP images up to 10 MB.
                 </p>
               </div>
 
               {imagesLoading ? (
-                <p
-                  role="status"
-                  className="mt-4 text-sm text-[#737A74]"
-                >
-                  Loading existing
-                  images…
+                <p role="status" className="mt-4 text-sm text-[#737A74]">
+                  Loading existing images…
                 </p>
               ) : (
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {images.map(
-                    (image) => (
-                      <div
-                        key={image.id}
-                        className="flex gap-3 rounded-xl border border-[#E3E5DF] p-3"
-                      >
-                        <img
-                          src={
-                            image.image_url
-                          }
-                          alt="Product"
-                          className="h-20 w-20 shrink-0 rounded-lg bg-[#F0F1EC] object-cover"
-                        />
+                  {images.map((image) => (
+                    <div
+                      key={image.id}
+                      className="flex gap-3 rounded-xl border border-[#E3E5DF] p-3"
+                    >
+                      <img
+                        src={image.image_url}
+                        alt={form.name ? `${form.name} image` : "Product image"}
+                        className="h-20 w-20 shrink-0 rounded-lg bg-[#F0F1EC] object-cover"
+                      />
 
-                        <div className="min-w-0 flex-1">
-                          <p
-                            className="truncate text-xs text-[#737A74]"
-                            title={
-                              image.image_url
-                            }
-                          >
-                            {
-                              image.image_url
-                            }
-                          </p>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="truncate text-xs text-[#737A74]"
+                          title={image.image_url}
+                        >
+                          {image.image_url}
+                        </p>
 
-                          {image.is_primary ? (
-                            <Badge>
-                              Primary image
-                            </Badge>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={
-                                imageBusy
-                              }
-                              className="mt-2 text-xs font-medium text-[#486B57]"
-                              onClick={() =>
-                                setExistingPrimary(
-                                  image,
-                                )
-                              }
-                            >
-                              Set as primary
-                            </button>
-                          )}
-
+                        {image.is_primary ? (
+                          <Badge>Primary image</Badge>
+                        ) : (
                           <button
                             type="button"
-                            disabled={
-                              imageBusy
-                            }
-                            className="ml-3 mt-2 text-xs text-[#8b4033]"
-                            onClick={() =>
-                              removeImage(
-                                image,
-                              )
-                            }
+                            disabled={imageBusy}
+                            className="mt-2 cursor-pointer text-xs font-medium text-[#486B57] disabled:opacity-50"
+                            onClick={() => setExistingPrimary(image)}
                           >
-                            Remove
+                            Set as primary
                           </button>
-                        </div>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={imageBusy}
+                          className="ml-3 mt-2 cursor-pointer text-xs text-[#8b4033] disabled:opacity-50"
+                          onClick={() => removeImage(image)}
+                        >
+                          Remove
+                        </button>
                       </div>
-                    ),
-                  )}
+                    </div>
+                  ))}
                 </div>
               )}
 
               <div className="mt-4 rounded-xl border border-dashed border-[#B8C7BA] p-4">
                 <label className="button-secondary inline-flex cursor-pointer items-center gap-2">
-                  <ImagePlus
-                    size={16}
-                  />
-
+                  <ImagePlus size={16} aria-hidden="true" />
                   Choose image
-
                   <input
                     className="sr-only"
                     type="file"
                     accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                    onChange={
-                      selectImage
-                    }
+                    onChange={selectImage}
                   />
                 </label>
 
@@ -1092,124 +980,58 @@ function AdminProducts() {
 
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
-                        {
-                          selectedFile.name
-                        }
+                        {selectedFile.name}
                       </p>
 
                       <p className="mt-1 text-xs text-[#737A74]">
-                        {(
-                          selectedFile.size /
-                          1024 /
-                          1024
-                        ).toFixed(2)}{" "}
-                        MB
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                       </p>
 
                       <label className="mt-2 flex items-center gap-2 text-xs">
                         <input
                           type="checkbox"
-                          checked={
-                            selectedPrimary
-                          }
-                          onChange={(
-                            event,
-                          ) =>
-                            setSelectedPrimary(
-                              event.target
-                                .checked,
-                            )
+                          checked={selectedPrimary}
+                          onChange={(event) =>
+                            setSelectedPrimary(event.target.checked)
                           }
                         />
-
-                        Set as primary
-                        image
+                        Set as primary image
                       </label>
                     </div>
 
                     <button
                       type="button"
-                      disabled={
-                        busy ||
-                        imageBusy ||
-                        !editing
-                      }
-                      className="button-primary inline-flex items-center gap-2"
+                      disabled={busy || imageBusy || !editing}
+                      className="button-primary inline-flex cursor-pointer items-center gap-2"
                       title={
                         !editing
                           ? "Save the product first to upload its image"
                           : undefined
                       }
-                      onClick={() =>
-                        uploadImage(
-                          editing,
-                        )
-                      }
+                      onClick={() => uploadImage(editing)}
                     >
-                      <Upload
-                        size={15}
-                      />
-
-                      {imageBusy
-                        ? "Uploading…"
-                        : "Upload image"}
+                      <Upload size={15} aria-hidden="true" />
+                      {imageBusy ? "Uploading…" : "Upload image"}
                     </button>
                   </div>
                 )}
 
-                <div className="sm:col-span-2 rounded-xl border border-[#E3E5DF] bg-[#F7F9F6] p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-[#212121]">
-                        Available quantity
-                      </p>
-                      <p className="mt-1 text-xs text-[#737A74]">
-                        Stock minus reserved quantity
-                      </p>
-                    </div>
-
-                    <span
-                      className={`text-xl font-bold ${
-                        Number(form.stock) -
-                          Number(form.reserved_quantity) >
-                        0
-                          ? "text-[#486B57]"
-                          : "text-[#8b4033]"
-                      }`}
-                    >
-                      {Math.max(
-                        0,
-                        Number(form.stock) -
-                          Number(form.reserved_quantity),
-                      )}
-                    </span>
-                  </div>
-                </div>
-
                 {!editing && (
                   <p className="mt-3 text-xs text-[#737A74]">
-                    Save the product
-                    first; the selected
-                    image will then upload
+                    Save the product first; the selected image will then upload
                     automatically.
                   </p>
                 )}
               </div>
 
               {imageError && (
-                <p
-                  role="alert"
-                  className="mt-3 text-sm text-[#8b4033]"
-                >
+                <p role="alert" className="mt-3 text-sm text-[#8b4033]">
                   {imageError}
                 </p>
               )}
 
               {imageSuccess && (
-                <p
-                  role="status"
-                  className="mt-3 text-sm text-[#486B57]"
-                >
+                <p role="status" className="mt-3 text-sm text-[#486B57]">
                   {imageSuccess}
                 </p>
               )}
@@ -1218,21 +1040,19 @@ function AdminProducts() {
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
-                className="button-secondary"
-                onClick={() =>
-                  setOpen(false)
-                }
+                disabled={busy || imageBusy}
+                className="button-secondary cursor-pointer"
+                onClick={closeModal}
               >
                 Cancel
               </button>
 
               <button
+                type="submit"
                 disabled={busy}
                 className="button-primary cursor-pointer"
               >
-                {busy
-                  ? "Saving…"
-                  : "Save product"}
+                {busy ? "Saving…" : "Save product"}
               </button>
             </div>
           </form>

@@ -18,152 +18,132 @@ const STATUS_FILTERS = [
   { label: "Rejected", value: "rejected" },
 ];
 
+function apiErrorMessage(error, fallback) {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const message = detail
+      .map((item) =>
+        typeof item === "string" ? item : item?.msg || JSON.stringify(item),
+      )
+      .filter(Boolean)
+      .join("; ");
+    return message || fallback;
+  }
+  return fallback;
+}
+
+function formatDate(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getStatusClasses(status) {
+  if (status === "approved") return "bg-[#E8F5E9] text-[#2E7D32]";
+  if (status === "rejected") return "bg-[#FFEBEE] text-[#C62828]";
+  return "bg-[#FFF8E1] text-[#F57F17]";
+}
+
+function getStatusIcon(status) {
+  if (status === "approved") return Check;
+  if (status === "rejected") return X;
+  return Clock3;
+}
+
 function Reviews() {
   const [reviews, setReviews] = useState([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const loadReviews = async () => {
-    try {
-        setLoading(true);
-        setError("");
-
-        const response = await api.get("/admin/reviews/", {
-        params: statusFilter
-            ? { review_status: statusFilter }
-            : {},
-        });
-
-        setReviews(response.data);
-    } catch (requestError) {
-        setError(
-        requestError.response?.data?.detail ||
-            "Unable to load reviews.",
-        );
-    } finally {
-        setLoading(false);
-    }
-    };
-
-    useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
-    const fetchReviews = async () => {
-        try {
-        const response = await api.get("/admin/reviews/", {
-            params: statusFilter
-            ? { review_status: statusFilter }
-            : {},
-        });
-
-        if (!cancelled) {
-            setReviews(response.data);
-            setError("");
-            setLoading(false);
-        }
-        } catch (requestError) {
-        if (!cancelled) {
-            setError(
-            requestError.response?.data?.detail ||
-                "Unable to load reviews.",
-            );
-            setLoading(false);
-        }
-        }
-    };
-
-    fetchReviews();
+    api
+      .get("/admin/reviews/", {
+        params: statusFilter ? { review_status: statusFilter } : {},
+      })
+      .then((response) => {
+        if (cancelled) return;
+        setReviews(Array.isArray(response.data) ? response.data : []);
+        setError("");
+      })
+      .catch((requestError) => {
+        if (cancelled) return;
+        setError(apiErrorMessage(requestError, "Unable to load reviews."));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     return () => {
-        cancelled = true;
+      cancelled = true;
     };
-    }, [statusFilter]);
+  }, [statusFilter, reloadKey]);
+
+  const reload = () => setReloadKey((key) => key + 1);
+
+  const refresh = () => {
+    setLoading(true);
+    setError("");
+    reload();
+  };
+
+  const changeFilter = (value) => {
+    if (value === statusFilter) return;
+    setLoading(true);
+    setError("");
+    setStatusFilter(value);
+  };
 
   const updateStatus = async (reviewId, nextStatus) => {
+    if (updatingId) return;
+    setUpdatingId(reviewId);
+    setError("");
+
     try {
-      setUpdatingId(reviewId);
-      setError("");
-
-      await api.patch(
-        `/admin/reviews/${reviewId}/status`,
-        null,
-        {
-          params: {
-            review_status: nextStatus,
-          },
-        },
-      );
-
-      await loadReviews();
+      await api.patch(`/admin/reviews/${reviewId}/status`, null, {
+        params: { review_status: nextStatus },
+      });
+      reload();
     } catch (requestError) {
-      setError(
-        requestError.response?.data?.detail ||
-          "Unable to update review.",
-      );
+      setError(apiErrorMessage(requestError, "Unable to update review."));
     } finally {
       setUpdatingId(null);
     }
   };
 
   const deleteReview = async (reviewId) => {
+    if (updatingId) return;
     const confirmed = window.confirm(
       "Are you sure you want to permanently delete this review?",
     );
+    if (!confirmed) return;
 
-    if (!confirmed) {
-      return;
-    }
+    setUpdatingId(reviewId);
+    setError("");
 
     try {
-      setUpdatingId(reviewId);
-      setError("");
-
       await api.delete(`/admin/reviews/${reviewId}`);
-
-      setReviews((currentReviews) =>
-        currentReviews.filter(
-          (review) => review.id !== reviewId,
-        ),
+      setReviews((current) =>
+        current.filter((review) => review.id !== reviewId),
       );
     } catch (requestError) {
-      setError(
-        requestError.response?.data?.detail ||
-          "Unable to delete review.",
-      );
+      setError(apiErrorMessage(requestError, "Unable to delete review."));
     } finally {
       setUpdatingId(null);
     }
   };
 
-  const getStatusClasses = (status) => {
-    if (status === "approved") {
-      return "bg-[#E8F5E9] text-[#2E7D32]";
-    }
-
-    if (status === "rejected") {
-      return "bg-[#FFEBEE] text-[#C62828]";
-    }
-
-    return "bg-[#FFF8E1] text-[#F57F17]";
-  };
-
-  const getStatusIcon = (status) => {
-    if (status === "approved") {
-      return Check;
-    }
-
-    if (status === "rejected") {
-      return X;
-    }
-
-    return Clock3;
-  };
-
   return (
     <div className="space-y-6">
-
       {/* HEADER */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -180,12 +160,13 @@ function Reviews() {
 
         <button
           type="button"
-          onClick={loadReviews}
+          onClick={refresh}
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#D5DAD5] bg-white px-4 py-2.5 text-sm font-semibold text-[#486B57] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+          className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#D5DAD5] bg-white px-4 py-2.5 text-sm font-semibold text-[#486B57] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]" 
         >
           <RefreshCw
             size={16}
+            aria-hidden="true"
             className={loading ? "animate-spin" : ""}
           />
           Refresh
@@ -201,8 +182,9 @@ function Reviews() {
             <button
               key={filter.value || "all"}
               type="button"
-              onClick={() => setStatusFilter(filter.value)}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              aria-pressed={active}
+              onClick={() => changeFilter(filter.value)}
+              className={`cursor-pointer rounded-full px-4 py-2 text-sm font-semibold transition ${
                 active
                   ? "bg-[#385744] text-white"
                   : "border border-[#D5DAD5] bg-white text-[#5C655E] hover:bg-[#F5F5F1]"
@@ -216,28 +198,34 @@ function Reviews() {
 
       {/* ERROR */}
       {error && (
-        <div className="rounded-xl border border-[#F1C4C4] bg-[#FFF5F5] px-4 py-3 text-sm font-medium text-[#C62828]">
+        <div
+          role="alert"
+          className="rounded-xl border border-[#F1C4C4] bg-[#FFF5F5] px-4 py-3 text-sm font-medium text-[#C62828]"
+        >
           {error}
         </div>
       )}
 
       {/* LOADING */}
       {loading ? (
-        <div className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-16 text-center">
+        <div
+          role="status"
+          className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-16 text-center"
+        >
           <RefreshCw
             size={24}
+            aria-hidden="true"
             className="mx-auto animate-spin text-[#486B57]"
           />
 
-          <p className="mt-3 text-sm text-[#737A74]">
-            Loading reviews...
-          </p>
+          <p className="mt-3 text-sm text-[#737A74]">Loading reviews...</p>
         </div>
       ) : reviews.length === 0 ? (
         /* EMPTY */
         <div className="rounded-2xl border border-[#E3E5DF] bg-white px-6 py-16 text-center">
           <MessageSquareText
             size={32}
+            aria-hidden="true"
             className="mx-auto text-[#A0A8A1]"
           />
 
@@ -255,6 +243,10 @@ function Reviews() {
           {reviews.map((review) => {
             const StatusIcon = getStatusIcon(review.status);
             const isUpdating = updatingId === review.id;
+            const rating = Number(review.rating) || 0;
+            const authorName =
+              `${review.user?.first_name || ""} ${review.user?.last_name || ""}`.trim() ||
+              "Unknown";
 
             return (
               <article
@@ -266,8 +258,7 @@ function Reviews() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-base font-bold text-[#212121]">
-                        {review.product?.name ||
-                          "Unknown product"}
+                        {review.product?.name || "Unknown product"}
                       </h2>
 
                       <span
@@ -275,7 +266,7 @@ function Reviews() {
                           review.status,
                         )}`}
                       >
-                        <StatusIcon size={13} />
+                        <StatusIcon size={13} aria-hidden="true" />
                         {review.status}
                       </span>
                     </div>
@@ -285,20 +276,23 @@ function Reviews() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    {Array.from({ length: 5 }).map(
-                      (_, index) => (
-                        <Star
-                          key={index}
-                          size={17}
-                          className={
-                            index < review.rating
-                              ? "fill-[#FFC107] text-[#FFC107]"
-                              : "text-[#D5D5D5]"
-                          }
-                        />
-                      ),
-                    )}
+                  <div
+                    className="flex items-center gap-1"
+                    role="img"
+                    aria-label={`${rating} out of 5 stars`}
+                  >
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <Star
+                        key={index}
+                        size={17}
+                        aria-hidden="true"
+                        className={
+                          index < rating
+                            ? "fill-[#FFC107] text-[#FFC107]"
+                            : "text-[#D5D5D5]"
+                        }
+                      />
+                    ))}
                   </div>
                 </div>
 
@@ -319,8 +313,7 @@ function Reviews() {
                   <div className="mt-5 flex flex-col gap-3 rounded-xl bg-[#F8F9F6] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-semibold text-[#212121]">
-                        {review.user?.first_name || "Unknown"}{" "}
-                        {review.user?.last_name || ""}
+                        {authorName}
                       </p>
 
                       <p className="mt-0.5 text-xs text-[#737A74]">
@@ -336,13 +329,7 @@ function Reviews() {
                       )}
 
                       <span className="text-xs text-[#737A74]">
-                        {new Date(
-                          review.created_at,
-                        ).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}
+                        {formatDate(review.created_at)}
                       </span>
                     </div>
                   </div>
@@ -354,15 +341,10 @@ function Reviews() {
                     <button
                       type="button"
                       disabled={isUpdating}
-                      onClick={() =>
-                        updateStatus(
-                          review.id,
-                          "approved",
-                        )
-                      }
-                      className="inline-flex items-center gap-2 rounded-lg bg-[#385744] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2E4938] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                      onClick={() => updateStatus(review.id, "approved")}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#385744] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#2E4938] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <Check size={15} />
+                      <Check size={15} aria-hidden="true" />
                       Approve
                     </button>
                   )}
@@ -371,15 +353,10 @@ function Reviews() {
                     <button
                       type="button"
                       disabled={isUpdating}
-                      onClick={() =>
-                        updateStatus(
-                          review.id,
-                          "rejected",
-                        )
-                      }
-                      className="inline-flex items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-bold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                      onClick={() => updateStatus(review.id, "rejected")}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-bold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <X size={15} />
+                      <X size={15} aria-hidden="true" />
                       Reject
                     </button>
                   )}
@@ -388,15 +365,10 @@ function Reviews() {
                     <button
                       type="button"
                       disabled={isUpdating}
-                      onClick={() =>
-                        updateStatus(
-                          review.id,
-                          "pending",
-                        )
-                      }
-                      className="inline-flex items-center gap-2 rounded-lg border border-[#D5DAD5] bg-white px-4 py-2 text-sm font-semibold text-[#5C655E] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                      onClick={() => updateStatus(review.id, "pending")}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#D5DAD5] bg-white px-4 py-2 text-sm font-semibold text-[#5C655E] transition hover:bg-[#F5F5F1] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <Clock3 size={15} />
+                      <Clock3 size={15} aria-hidden="true" />
                       Set pending
                     </button>
                   )}
@@ -404,12 +376,10 @@ function Reviews() {
                   <button
                     type="button"
                     disabled={isUpdating}
-                    onClick={() =>
-                      deleteReview(review.id)
-                    }
-                    className="ml-auto inline-flex items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-semibold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                    onClick={() => deleteReview(review.id)}
+                    className="ml-auto inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#E0B5B5] bg-white px-4 py-2 text-sm font-semibold text-[#C62828] transition hover:bg-[#FFF5F5] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C62828]"
                   >
-                    <Trash2 size={15} />
+                    <Trash2 size={15} aria-hidden="true" />
                     Delete
                   </button>
                 </div>

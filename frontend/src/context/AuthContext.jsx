@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import api from "../services/api";
-import AuthContext from "./auth-context";
-import {
+import api, { setUnauthorizedHandler } from "../services/api";
+import AuthContext, {
   clearLegacySharedToken,
   getActiveSessionRole,
+  getSessionKey,
   getSessionToken,
   removeSessionToken,
   setSessionToken,
@@ -25,8 +25,15 @@ function AuthProvider({ children }) {
     Boolean(getSessionToken("admin")),
   );
 
+  const [sessionErrors, setSessionErrors] = useState({
+    customer: false,
+    admin: false,
+  });
+
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
+
+  const countsRequestId = useRef(0);
 
   useEffect(() => {
     let mounted = true;
@@ -57,6 +64,8 @@ function AuthProvider({ children }) {
       } catch (error) {
         if (error.response?.status === 401) {
           removeSessionToken(role);
+        } else if (mounted) {
+          setSessionErrors((current) => ({ ...current, [role]: true }));
         }
 
         if (mounted) {
@@ -70,16 +79,8 @@ function AuthProvider({ children }) {
     };
 
     Promise.all([
-      restoreSession(
-        "customer",
-        setCustomerUser,
-        setCustomerLoading,
-      ),
-      restoreSession(
-        "admin",
-        setAdminUser,
-        setAdminLoading,
-      ),
+      restoreSession("customer", setCustomerUser, setCustomerLoading),
+      restoreSession("admin", setAdminUser, setAdminLoading),
     ]);
 
     return () => {
@@ -87,18 +88,46 @@ function AuthProvider({ children }) {
     };
   }, []);
 
-  const user = activeRole === "admin"
-    ? adminUser
-    : customerUser;
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.storageArea !== window.localStorage) return;
 
-  const loading = activeRole === "admin"
-    ? adminLoading
-    : customerLoading;
+      const clearedAll = event.key === null;
+
+      if (
+        clearedAll ||
+        (event.key === getSessionKey("customer") && !event.newValue)
+      ) {
+        countsRequestId.current += 1;
+        setCustomerUser(null);
+        setCartCount(0);
+        setWishlistCount(0);
+      }
+
+      if (
+        clearedAll ||
+        (event.key === getSessionKey("admin") && !event.newValue)
+      ) {
+        setAdminUser(null);
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  const user = activeRole === "admin" ? adminUser : customerUser;
+  const loading = activeRole === "admin" ? adminLoading : customerLoading;
+  const sessionError =
+    sessionErrors[activeRole === "admin" ? "admin" : "customer"];
 
   const refreshCounts = useCallback(async () => {
     if (!customerUser || activeRole !== "customer") {
       return;
     }
+
+    const requestId = ++countsRequestId.current;
 
     try {
       const [cart, wishlist] = await Promise.all([
@@ -106,61 +135,52 @@ function AuthProvider({ children }) {
         api.get("/wishlist/"),
       ]);
 
+      if (requestId !== countsRequestId.current) return;
+
       setCartCount(
-        cart.data.items.reduce(
-          (total, item) => total + item.quantity,
-          0,
-        ),
+        cart.data.items.reduce((total, item) => total + item.quantity, 0),
       );
 
-      setWishlistCount(
-        wishlist.data.items.length,
-      );
-    } catch {
-      setCartCount(0);
-      setWishlistCount(0);
+      setWishlistCount(wishlist.data.items.length);
+    } catch (error) {
+      if (requestId !== countsRequestId.current) return;
+
+      if (error.response?.status === 401) {
+        setCartCount(0);
+        setWishlistCount(0);
+      }
     }
   }, [activeRole, customerUser]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(
-      () => void refreshCounts(),
-      0,
-    );
+  const login = useCallback((token, userData, role, remember = false) => {
+    const sessionRole = role === "admin" ? "admin" : "customer";
 
-    return () => window.clearTimeout(timer);
-  }, [refreshCounts]);
+    setSessionToken(sessionRole, token, remember);
+    setSessionErrors((current) => ({ ...current, [sessionRole]: false }));
 
-  const login = useCallback(
-    (token, userData, role, remember = false) => {
-      const sessionRole =
-        role === "admin" ? "admin" : "customer";
-
-      setSessionToken(
-        sessionRole,
-        token,
-        remember,
-      );
-
-      if (sessionRole === "admin") {
-        setAdminUser(userData);
-        setAdminLoading(false);
-      } else {
-        setCustomerUser(userData);
-        setCustomerLoading(false);
-      }
-    },
-    [],
-  );
+    if (sessionRole === "admin") {
+      setAdminUser(userData);
+      setAdminLoading(false);
+    } else {
+      setCustomerUser(userData);
+      setCustomerLoading(false);
+    }
+  }, []);
 
   const logout = useCallback(
-    (role = activeRole) => {
-      removeSessionToken(role);
+    (role) => {
+      const target =
+        role === "admin" || role === "customer" ? role : activeRole;
 
-      if (role === "admin") {
+      removeSessionToken(target);
+      setSessionErrors((current) => ({ ...current, [target]: false }));
+
+      if (target === "admin") {
         setAdminUser(null);
         setAdminLoading(false);
       } else {
+        countsRequestId.current += 1;
+
         setCustomerUser(null);
         setCustomerLoading(false);
         setCartCount(0);
@@ -169,7 +189,13 @@ function AuthProvider({ children }) {
     },
     [activeRole],
   );
-  
+
+  useEffect(() => {
+    setUnauthorizedHandler((role) => logout(role));
+
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
   const updateUser = useCallback(
     (updatedUser) => {
       if (activeRole === "admin") {
@@ -185,6 +211,7 @@ function AuthProvider({ children }) {
     () => ({
       user,
       loading,
+      sessionError,
       login,
       logout,
       updateUser,
@@ -196,6 +223,7 @@ function AuthProvider({ children }) {
     [
       user,
       loading,
+      sessionError,
       login,
       logout,
       updateUser,
@@ -205,11 +233,7 @@ function AuthProvider({ children }) {
     ],
   );
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export default AuthProvider;

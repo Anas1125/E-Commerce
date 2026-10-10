@@ -15,6 +15,11 @@ load_dotenv()
 
 database_url = os.getenv("DATABASE_URL")
 
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace(
+        "postgres://", "postgresql://", 1
+    )
+
 if not database_url:
     raise RuntimeError("DATABASE_URL is not set")
 

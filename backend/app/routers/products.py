@@ -1,6 +1,9 @@
 from pathlib import Path
 from uuid import uuid4
 import os
+import logging
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
@@ -27,6 +30,7 @@ router = APIRouter(
     prefix="/api/products",
     tags=["Products"],
 )
+logger = logging.getLogger(__name__)
 
 
 def assign_product_brand(db: Session, product: Product, product_data: ProductCreate) -> None:
@@ -334,45 +338,73 @@ def update_product_inventory(
     db: Session = Depends(get_db),
     current_admin: User = Depends(require_admin),
 ):
-    product = db.get(Product, product_id)
+    try:
+        product = db.scalar(
+            select(Product)
+            .where(Product.id == product_id)
+            .with_for_update()
+        )
 
-    if product is None:
+        if product is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Product not found",
+            )
+
+        inventory = db.scalar(
+            select(Inventory)
+            .where(Inventory.product_id == product_id)
+            .with_for_update()
+        )
+
+        if inventory is None:
+            inventory = Inventory(
+                product_id=product_id,
+                quantity=inventory_data.quantity,
+                reserved_quantity=inventory_data.reserved_quantity,
+            )
+            db.add(inventory)
+            db.flush()
+        else:
+            if inventory_data.quantity < inventory.reserved_quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Quantity cannot be less than reserved quantity",
+                )
+
+            inventory.quantity = inventory_data.quantity
+            inventory.reserved_quantity = inventory_data.reserved_quantity
+
+        if inventory.reserved_quantity > inventory.quantity:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Reserved quantity cannot be greater than stock",
+            )
+
+        product.stock = inventory.quantity
+
+        db.commit()
+        db.refresh(inventory)
+
+        return inventory
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError:
+        db.rollback()
+
+        logger.exception(
+            "Failed to update inventory for product_id=%s",
+            product_id,
+        )
+
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Product not found",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update inventory.",
         )
 
-    if inventory_data.reserved_quantity > inventory_data.quantity:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Reserved quantity cannot be greater than stock",
-        )
-
-    inventory = db.scalar(
-        select(Inventory).where(
-            Inventory.product_id == product_id
-        )
-    )
-
-    if inventory is None:
-        inventory = Inventory(
-            product_id=product_id,
-            quantity=inventory_data.quantity,
-            reserved_quantity=inventory_data.reserved_quantity,
-        )
-        db.add(inventory)
-    else:
-        inventory.quantity = inventory_data.quantity
-        inventory.reserved_quantity = (
-            inventory_data.reserved_quantity
-        )
-
-    product.stock = inventory_data.quantity
-
-    db.commit()
-    db.refresh(inventory)
-
-    return inventory
 
 @router.get("/{product_id}", response_model=ProductResponse)
 def get_product(
@@ -493,12 +525,12 @@ def update_product(
     assign_product_brand(db, product, product_data)
     product.price = product_data.price
     product.category_id = product_data.category_id
-    product.stock = product_data.stock
+
 
     inventory = db.scalar(
-        select(Inventory).where(
-            Inventory.product_id == product.id
-        )
+        select(Inventory)
+        .where(Inventory.product_id == product.id)
+        .with_for_update()
     )
 
     if inventory is None:
@@ -517,10 +549,24 @@ def update_product(
 
         inventory.quantity = product_data.stock
 
-    db.commit()
-    db.refresh(product)
+    product.stock = inventory.quantity
+
+    try:
+        db.commit()
+        db.refresh(product)
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception(
+            "Failed to update product_id=%s",
+            product_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update product.",
+        )
 
     return product
+
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
