@@ -189,7 +189,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_refunds_order_id'), 'refunds', ['order_id'], unique=False)
     op.create_index(op.f('ix_refunds_payment_id'), 'refunds', ['payment_id'], unique=False)
     op.create_index('ix_refunds_status_requested_at', 'refunds', ['status', 'requested_at'], unique=False)
-    op.drop_index('uq_refunds_one_active_per_order', table_name='refunds')
+    op.execute("DROP INDEX IF EXISTS uq_refunds_one_active_per_order")
     op.create_index('uq_refunds_one_active_per_order', 'refunds', ['order_id'], unique=True, postgresql_where=sa.text("status IN ('requested', 'approved', 'processing', 'completed')"), sqlite_where=sa.text("status IN ('requested', 'approved', 'processing', 'completed')"))
     op.drop_constraint(op.f('refunds_order_id_fkey'), 'refunds', type_='foreignkey')
     op.drop_constraint(op.f('refunds_payment_id_fkey'), 'refunds', type_='foreignkey')
