@@ -43,7 +43,7 @@ function apiErrorMessage(error, fallback) {
 }
 
 async function fetchBrands() {
-  const response = await api.get("/brands/");
+  const response = await api.get("/brands/admin/all");
 
   return Array.isArray(response.data) ? response.data : [];
 }
