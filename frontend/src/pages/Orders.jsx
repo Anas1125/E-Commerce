@@ -394,7 +394,8 @@ function Orders() {
 
       if (
         !existing ||
-        new Date(refund.created_at || 0) >= new Date(existing.created_at || 0)
+        new Date(refund.requested_at || 0) >=
+          new Date(existing.requested_at || 0)
       ) {
         map.set(refund.order_id, refund);
       }
