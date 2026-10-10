@@ -239,10 +239,10 @@ def complete_payment(
         if payment.status == "paid":
             return payment
 
-        if payment.status == "failed" or payment.status in _REFUNDED_STATUSES:
+        if payment.status in _REFUNDED_STATUSES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="This payment cannot be completed",
+                detail="Refunded payment cannot be completed",
             )
 
         if not payment.gateway_order_id:
@@ -516,9 +516,6 @@ def fail_payment(
                 detail="Paid payment cannot be marked as failed",
             )
 
-        if payment.status == "failed":
-            return payment
-
         if payment.status in _REFUNDED_STATUSES:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -556,6 +553,31 @@ def fail_payment(
             ) from exc
 
         gateway_attempts = gateway_result.get("items", [])
+        captured_attempts = [
+            attempt
+            for attempt in gateway_attempts
+            if attempt.get("status") == "captured" and attempt.get("id")
+        ]
+
+        if len(captured_attempts) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Multiple captured payments require manual reconciliation.",
+            )
+
+        if captured_attempts:
+            gateway_payment = captured_attempts[0]
+
+            return complete_payment(
+                payment_id=payment.id,
+                gateway_order_id=payment.gateway_order_id,
+                gateway_payment_id=gateway_payment["id"],
+                gateway_signature=None,
+                payment_method=gateway_payment.get("method"),
+                user=user,
+                db=db,
+                verify_signature=False,
+            )
 
         if not gateway_attempts:
             raise HTTPException(
@@ -579,74 +601,27 @@ def fail_payment(
             )
 
         if order.order_status == "cancelled":
-            logger.warning(
-                "Order %s already cancelled; marking payment %s failed "
-                "without releasing inventory",
-                order.id,
-                payment.id,
-            )
-
             payment.status = "failed"
             order.payment_status = "failed"
+            payment.failure_code = "payment_failed"
+            payment.failure_reason = (
+                "Razorpay confirmed that all payment attempts failed."
+            )
 
             db.commit()
             db.refresh(payment)
-
             return payment
-
-        order = db.scalar(
-            select(Order)
-            .options(selectinload(Order.items))
-            .where(Order.id == order.id)
-            .execution_options(populate_existing=True)
-        )
-
-        if order is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Order not found",
-            )
-
-
-        for order_item in sorted(order.items, key=lambda i: i.product_id):
-            inventory = db.scalar(
-                select(Inventory)
-                .where(Inventory.product_id == order_item.product_id)
-                .with_for_update()
-            )
-
-            if inventory is None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Inventory not found for '{order_item.product_name}'",
-                )
-
-            if inventory.reserved_quantity < order_item.quantity:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=(
-                        f"Reserved inventory is insufficient for "
-                        f"'{order_item.product_name}'"
-                    ),
-                )
-
-            inventory.reserved_quantity -= order_item.quantity
 
         payment.status = "failed"
         order.payment_status = "failed"
-        order.order_status = "cancelled"
-
-        db.add(
-            OrderStatusHistory(
-                order_id=order.id,
-                status="cancelled",
-                note="Razorpay confirmed all payment attempts failed",
-            )
+        payment.failure_code = "payment_failed"
+        payment.failure_reason = (
+            "Razorpay confirmed that all payment attempts failed. "
+            "The order is retained for a safe payment retry."
         )
 
         db.commit()
         db.refresh(payment)
-
         return payment
 
     except HTTPException:
@@ -660,6 +635,147 @@ def fail_payment(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to update payment status",
+        ) from exc
+
+def retry_payment(
+    payment_id: int,
+    user: User,
+    db: Session,
+) -> Payment:
+    """Safely prepare an existing UPI order for another payment attempt."""
+    try:
+        order, payment = _lock_order_then_payment(
+            db,
+            user=user,
+            payment_id=payment_id,
+        )
+
+        if order is None or payment is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Payment not found",
+            )
+
+        if payment.payment_gateway != "razorpay" or order.payment_method != "upi":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Retry is only available for Razorpay UPI orders",
+            )
+
+        if payment.status in _REFUNDED_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A refunded payment cannot be retried",
+            )
+
+        if payment.status == "paid" and order.payment_status == "paid":
+            return payment
+
+        if payment.status == "paid" or order.payment_status == "paid":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Payment and order statuses do not match. "
+                    "Retry is blocked until the payment is reconciled."
+                ),
+            )
+
+        if order.order_status == "cancelled":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This order has been cancelled",
+            )
+
+        if not payment.gateway_order_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The Razorpay order is missing; payment cannot be retried safely",
+            )
+
+        _ensure_amount_matches(order, payment)
+        client = get_razorpay_client()
+
+        try:
+            gateway_order = client.order.fetch(payment.gateway_order_id)
+            gateway_result = client.order.payments(payment.gateway_order_id)
+        except Exception as exc:
+            logger.exception("Unable to verify Razorpay order before retry")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Unable to verify payment status with Razorpay. Please try again shortly.",
+            ) from exc
+
+        attempts = gateway_result.get("items", [])
+        captured_attempts = [
+            attempt
+            for attempt in attempts
+            if attempt.get("status") == "captured" and attempt.get("id")
+        ]
+
+        if len(captured_attempts) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Multiple captured payments require manual reconciliation",
+            )
+
+        if captured_attempts:
+            gateway_payment = captured_attempts[0]
+            return complete_payment(
+                payment_id=payment.id,
+                gateway_order_id=payment.gateway_order_id,
+                gateway_payment_id=gateway_payment["id"],
+                gateway_signature=None,
+                payment_method=gateway_payment.get("method"),
+                user=user,
+                db=db,
+                verify_signature=False,
+            )
+
+        gateway_status = gateway_order.get("status")
+
+        if gateway_status == "paid":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Razorpay reports a paid order but no captured payment was returned. Please check payment status again.",
+            )
+
+        if gateway_status not in {"created", "attempted"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Razorpay order is not in a retryable state",
+            )
+
+        if not attempts:
+            if gateway_status != "created":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Payment attempts could not be verified. Please check status again before retrying.",
+                )
+        elif any(attempt.get("status") != "failed" for attempt in attempts):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A payment attempt may still be processing. Check payment status before retrying.",
+            )
+
+        payment.status = "pending"
+        payment.failure_code = None
+        payment.failure_reason = None
+        order.payment_status = "pending"
+
+        db.commit()
+        db.refresh(payment)
+        return payment
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Unable to prepare payment retry")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to prepare payment retry",
         ) from exc
 
 def reconcile_payment_status(
@@ -730,16 +846,18 @@ def reconcile_payment_status(
             )
 
         if not captured_attempts:
+            if attempts and all(
+                attempt.get("status") == "failed"
+                for attempt in attempts
+            ):
+                return fail_payment(
+                    payment_id=payment.id,
+                    user=user,
+                    db=db,
+                )
+
             return payment
 
-        if payment.status == "failed":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Razorpay reports a captured payment, but the local "
-                    "payment is marked failed. Manual reconciliation is required."
-                ),
-            )
 
         gateway_payment = captured_attempts[0]
 

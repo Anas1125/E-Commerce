@@ -266,6 +266,8 @@ function CheckoutContent() {
 
   const [paymentPending, setPaymentPending] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [paymentConfirmedFailed, setPaymentConfirmedFailed] = useState(false);
+  const [paymentNeedsSupport, setPaymentNeedsSupport] = useState(false);
 
   const [editingContact, setEditingContact] = useState(null);
   const [contactValue, setContactValue] = useState("");
@@ -423,7 +425,7 @@ function CheckoutContent() {
             orderKey: saved.orderKey,
             idempotencyKey: saved.idempotencyKey,
           };
-
+          setPaymentMethod("upi");
           setPaymentPending(order.order_number);
           setStep(2);
         }
@@ -700,16 +702,16 @@ function CheckoutContent() {
 
       setEditingContact(null);
       setContactValue("");
-    } catch (requestError) {
-      setError(
-        getErrorMessage(
-          requestError,
-          "Unable to update your contact information.",
-        ),
-      );
-    } finally {
-      setContactSaving(false);
-    }
+      } catch (requestError) {
+        setError(
+          getErrorMessage(
+            requestError,
+            "Unable to update your contact information.",
+          ),
+        );
+      } finally {
+        setContactSaving(false);
+      }
   };
 
   const releaseBusy = () => {
@@ -798,15 +800,22 @@ function CheckoutContent() {
           payment: paymentResult,
         },
       });
-    } catch {
-      setPaymentPending(order.order_number);
+      } catch (requestError) {
+        const needsSupport =
+          requestError?.response?.status === 409;
 
-      setError(
-        `We couldn't confirm the final status of order ${order.order_number}. Please don't pay again. Retry the status check or contact support.`,
-      );
+        setPaymentConfirmedFailed(false);
+        setPaymentNeedsSupport(needsSupport);
+        setPaymentPending(order.order_number);
 
-      releaseBusy();
-    } finally {
+        setError(
+          needsSupport
+            ? `Payment may have been captured, but order ${order.order_number} needs reconciliation. Please don't pay again. Contact support to resolve this payment.`
+            : `We couldn't confirm the final status of order ${order.order_number}. Please don't pay again. Check payment status or contact support.`,
+        );
+
+        releaseBusy();
+      } finally {
       confirmingRef.current = false;
 
       if (mountedRef.current) {
@@ -839,7 +848,36 @@ function CheckoutContent() {
         { payment_id: payment.id }
       );
 
+      if (paymentResult?.status === "failed") {
+        const failedOrder =
+          context?.order ?? pendingOrderRef.current?.order;
+
+        if (pendingOrderRef.current?.key) {
+          pendingPaymentRef.current = {
+            key: `${paymentResult.order_id}|${pendingOrderRef.current.key}`,
+            payment: paymentResult,
+          };
+        }
+
+        confirmRef.current = null;
+        paymentLockedRef.current = false;
+
+        setPaymentNeedsSupport(false);
+        setPaymentConfirmedFailed(true);
+        setPaymentPending(
+          failedOrder?.order_number ?? paymentPending
+        );
+
+        setError(
+          "Razorpay confirmed that all payment attempts failed. Your existing order is saved so you can retry without creating another order."
+        );
+
+        return;
+      }
+
       if (paymentResult?.status !== "paid") {
+        setPaymentConfirmedFailed(false);
+        setPaymentNeedsSupport(false);
         setError(
           "Razorpay has not confirmed a captured payment yet. Your order remains unresolved. Please don't pay again; try checking again shortly."
         );
@@ -878,6 +916,10 @@ function CheckoutContent() {
         },
       });
     } catch (requestError) {
+      setPaymentConfirmedFailed(false);
+      setPaymentNeedsSupport(
+        requestError?.response?.status === 409
+      );
       setError(
         getErrorMessage(
           requestError,
@@ -892,6 +934,171 @@ function CheckoutContent() {
       }
     }
   };
+
+
+  const retryPendingPayment = async () => {
+    if (busyRef.current || confirmingRef.current) return;
+
+    const savedOrder = pendingOrderRef.current;
+    const savedPayment = pendingPaymentRef.current?.payment;
+
+    if (!savedOrder?.order?.id || !savedPayment?.id) {
+      setError(
+        "The saved order details are unavailable. Check My Orders before trying to pay again."
+      );
+      return;
+    }
+
+    const razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+
+    if (!razorpayKey) {
+      setError("Online payments are not configured right now.");
+      return;
+    }
+
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+
+    try {
+      const loaded = await loadRazorpay();
+
+      if (!loaded) {
+        throw userFacingError(
+          "Unable to load Razorpay Checkout. Please try again."
+        );
+      }
+
+      const { data: payment } = await api.post("/payments/retry", {
+        payment_id: savedPayment.id,
+      });
+
+      const order = savedOrder.order;
+
+      if (payment.status === "paid") {
+        pendingPaymentRef.current = {
+          key: `${order.id}|${savedOrder.key}`,
+          payment,
+        };
+
+        setPaymentConfirmedFailed(false);
+        releaseBusy();
+        await checkPaymentStatus();
+        return;
+      }
+
+      if (
+        payment.status !== "pending" ||
+        !payment.gateway_order_id
+      ) {
+        throw userFacingError(
+          "The payment is not ready to retry. Check its status before trying again."
+        );
+      }
+
+      pendingPaymentRef.current = {
+        key: `${order.id}|${savedOrder.key}`,
+        payment,
+      };
+
+      savePendingPayment({
+        userId: user?.id,
+        orderId: order.id,
+        orderNumber: order.order_number,
+        paymentId: payment.id,
+        gatewayOrderId: payment.gateway_order_id,
+        amount: payment.amount,
+        currency: payment.currency,
+        orderKey: savedOrder.key,
+        idempotencyKey: savedOrder.idempotencyKey ?? null,
+      });
+
+      setPaymentConfirmedFailed(false);
+      setPaymentPending(order.order_number);
+
+      let paymentReported = false;
+
+      const razorpay = new window.Razorpay({
+        key: razorpayKey,
+        amount: Math.round(Number(payment.amount) * 100),
+        currency: payment.currency,
+        name: siteName,
+        description: `Order ${order.order_number}`,
+        order_id: payment.gateway_order_id,
+
+        prefill: {
+          name: [user?.first_name, user?.last_name]
+            .filter(Boolean)
+            .join(" "),
+          email: user?.email || "",
+          contact: user?.phone_number || "",
+        },
+
+        theme: { color: "#2874F0" },
+
+        handler: (response) => {
+          paymentReported = true;
+          paymentLockedRef.current = true;
+          confirmRef.current = { order, payment, response };
+          confirmPayment();
+        },
+
+        modal: {
+          ondismiss: async () => {
+            if (paymentReported) return;
+
+            let confirmedFailed = false;
+
+            try {
+              const { data } = await api.post("/payments/fail", {
+                payment_id: payment.id,
+              });
+              confirmedFailed = data?.status === "failed";
+            } catch {
+              // Keep the existing order when the gateway outcome
+              // cannot be confirmed.
+            }
+
+            setPaymentConfirmedFailed(confirmedFailed);
+            setPaymentPending(order.order_number);
+            setError(
+              confirmedFailed
+                ? "Razorpay confirmed the payment attempt failed. You can retry this existing order."
+                : "The payment outcome is still unresolved. Check payment status before trying again."
+            );
+
+            releaseBusy();
+          },
+        },
+      });
+
+      razorpay.on("payment.failed", () => {
+        setPaymentConfirmedFailed(false);
+        setPaymentNeedsSupport(false);
+
+        setError(
+          "Razorpay reported an unsuccessful attempt. We'll verify its final status before allowing another attempt."
+        );
+      });
+
+      razorpay.open();
+      } catch (error) {
+      setPaymentConfirmedFailed(false);
+      setPaymentNeedsSupport(
+        error?.response?.status === 409
+      );
+
+      setError(
+        getErrorMessage(
+          error,
+          "Unable to retry payment. Please check its status."
+        )
+      );
+
+      releaseBusy();
+    }
+  };
+
 
   const placeOrder = async () => {
     if (
@@ -1154,20 +1361,18 @@ function CheckoutContent() {
             }
 
             if (confirmedFailed) {
-              pendingOrderRef.current = null;
-              pendingPaymentRef.current = null;
-              pendingIdempotencyRef.current = null;
-              confirmRef.current = null;
-              paymentLockedRef.current = false;
-
-              clearCheckoutAttempt();
+              setPaymentConfirmedFailed(true);
+              setPaymentPending(order.order_number);
 
               setError(
-                "Razorpay confirmed that this payment failed. You can place a new order.",
+                "Razorpay confirmed that all payment attempts failed. Your existing order is saved so you can retry payment safely."
               );
             } else {
+              setPaymentConfirmedFailed(false);
+              setPaymentPending(order.order_number);
+
               setError(
-                "Payment window closed. The final payment status is not confirmed yet. Your existing order is being kept pending; retry using the same checkout and don't create another order.",
+                "Payment window closed. The final status is not confirmed yet. Your existing order is saved. Check its status before trying again."
               );
             }
 
@@ -2128,12 +2333,29 @@ function CheckoutContent() {
                 {step === 2 && paymentPending && (
                   <div className="mt-5 rounded-md border border-[#FFE0A3] bg-[#FFF8E6] p-4">
                     <p className="text-sm font-semibold text-[#7A5200]">
-                      Payment received for order {paymentPending}
+                      {paymentNeedsSupport
+                        ? `Payment requires support for order ${paymentPending}`
+                        : paymentConfirmedFailed
+                          ? `Payment attempt failed for order ${paymentPending}`
+                          : `Payment status for order ${paymentPending}`}
                     </p>
 
                     <p className="mt-1 text-xs leading-5 text-[#7A5200]">
-                      We're still confirming it. Please don't pay again.
+                      {paymentNeedsSupport
+                        ? "We couldn't safely reconcile this payment with your order. Please don't pay again. Contact support before taking any further payment action."
+                        : paymentConfirmedFailed
+                          ? "The payment attempt failed. Your existing order is saved for a safe retry."
+                          : "We're still confirming the payment. Please don't pay again yet."}
                     </p>
+
+                    <button
+                      type="button"
+                      onClick={retryPendingPayment}
+                      disabled={busy || confirming || !paymentConfirmedFailed}
+                      className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-[#2874F0] px-5 py-3 text-sm font-bold text-[#2874F0] transition hover:bg-[#F5F9FF] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {busy ? "Opening Razorpay..." : "Retry UPI Payment"}
+                    </button>
 
                     <button
                       type="button"
@@ -2143,6 +2365,15 @@ function CheckoutContent() {
                     >
                       {confirming ? "Checking..." : "Check payment status"}
                     </button>
+
+                      {paymentNeedsSupport && (
+                        <Link
+                          to={`/contact?order=${encodeURIComponent(paymentPending)}`}
+                          className="mt-3 flex w-full items-center justify-center rounded-md border border-[#2874F0] px-5 py-3 text-sm font-bold text-[#2874F0] transition hover:bg-[#F5F9FF]"
+                        >
+                          Contact support about this order
+                        </Link>
+                      )}
 
                     <Link
                       to="/orders"

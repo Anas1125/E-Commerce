@@ -16,6 +16,7 @@ from app.services.payment_service import (
     complete_payment,
     fail_payment,
     reconcile_payment_status,
+    retry_payment,
 )
 
 router = APIRouter(
@@ -83,6 +84,19 @@ def check_order_payment_status(
     db: Session = Depends(get_db),
 ):
     return reconcile_payment_status(
+        payment_id=payment_data.payment_id,
+        user=current_user,
+        db=db,
+    )
+
+
+@router.post("/retry", response_model=PaymentResponse)
+def retry_order_payment(
+    payment_data: PaymentStatusCheck,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return retry_payment(
         payment_id=payment_data.payment_id,
         user=current_user,
         db=db,
