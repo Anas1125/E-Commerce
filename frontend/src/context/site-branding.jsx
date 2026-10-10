@@ -61,7 +61,7 @@ export function SiteBrandingProvider({ children }) {
     const id = ++requestId.current;
 
     api
-      .get("/site-settings/")
+      .get("/site-settings")
       .then((response) => {
         if (id === requestId.current) {
           setSettings(normalizeSettings(response.data));
