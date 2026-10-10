@@ -743,10 +743,11 @@ function AdminAdmins() {
               label="Password"
               type="password"
               autoComplete="new-password"
-              hint="At least 8 characters."
+              hint="12–128 characters required."
               value={form.password}
               onChange={(event) => updateForm("password", event.target.value)}
-              minLength={8}
+              minLength={12}
+              maxLength={128}
               required
             />
 

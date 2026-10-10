@@ -39,7 +39,7 @@ export function SiteBrandingProvider({ children }) {
     const id = ++requestId.current;
 
     try {
-      const response = await api.get("/site-settings/");
+      const response = await api.get("/site-settings");
       const data = normalizeSettings(response.data);
 
       if (id === requestId.current) {
