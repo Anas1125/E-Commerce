@@ -1,404 +1,324 @@
-import { useEffect, useState } from "react";
-import {
-  Link,
-  NavLink,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
-import {
-  Heart,
-  Menu,
-  Search,
-  ShoppingBag,
-  User,
-  X,
-} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Heart, Menu, Search, ShoppingBag, User, X } from "lucide-react";
 
 import useAuth from "../context/useAuth";
 import BrandMark from "./BrandMark";
+
+const links = [
+  { name: "Home", to: "/" },
+  { name: "Shop", to: "/shop" },
+  { name: "Categories", to: "/categories" },
+  { name: "Deals", to: "/deals" },
+];
+
+const iconClass =
+  "relative inline-flex cursor-pointer items-center justify-center rounded-full p-2 text-[#39453D] transition-colors hover:bg-[#DCE7DE] hover:text-[#486B57] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/30";
+
+const desktopLinkClass = ({ isActive }) =>
+  `text-sm transition hover:text-[#486B57] ${
+    isActive ? "font-semibold text-[#486B57]" : "text-[#4F5851]"
+  }`;
+
+const mobileLinkClass = ({ isActive }) =>
+  `py-3 text-sm transition hover:text-[#486B57] ${
+    isActive ? "font-semibold text-[#486B57]" : "text-[#4F5851]"
+  }`;
+
+const countLabel = (name, count) =>
+  count > 0 ? `${name}, ${count} ${count === 1 ? "item" : "items"}` : name;
+
+function CountBadge({ count }) {
+  if (count <= 0) return null;
+
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute -right-0.5 -top-0.5 min-w-[16px] rounded-full bg-[#486B57] px-1 py-px text-center text-[9px] leading-4 text-white"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+function SearchForm({ value, onChange, onSubmit }) {
+  return (
+    <form
+      id="site-search"
+      role="search"
+      onSubmit={onSubmit}
+      className="border-t border-[#E3E5DF] bg-[#F5F5F1] px-4 py-3 md:absolute md:right-6 md:top-2 md:w-[420px] md:rounded-xl md:border md:bg-white md:p-3 md:shadow-lg"
+    >
+      <div className="relative">
+        <Search
+          size={18}
+          aria-hidden="true"
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#878787]"
+        />
+
+        <input
+          autoFocus
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          aria-label="Search products"
+          placeholder="Search products, brands and more"
+          autoComplete="off"
+          className="h-11 w-full rounded-lg border border-[#D8DDD8] bg-white pl-10 pr-10 text-sm text-[#212121] outline-none transition focus:border-[#486B57] focus:ring-1 focus:ring-[#486B57]/20"
+        />
+
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            aria-label="Clear search"
+            className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-[#878787] hover:bg-[#F1F3F6] hover:text-[#212121]"
+          >
+            <X size={15} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+
+      <p className="hidden px-1 pt-2 text-[11px] text-[#878787] md:block">
+        Search products, brands and categories
+      </p>
+    </form>
+  );
+}
 
 function Navbar() {
   const [open, setOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const {
-    isAuthenticated,
-    user,
-    cartCount,
-    wishlistCount,
-    refreshCounts,
-  } = useAuth();
+  const headerRef = useRef(null);
+
+  const { isAuthenticated, user, cartCount, wishlistCount, refreshCounts } =
+    useAuth();
 
   const location = useLocation();
   const navigate = useNavigate();
+  const [prevPathname, setPrevPathname] = useState(location.pathname);
 
+  if (prevPathname !== location.pathname) {
+    setPrevPathname(location.pathname);
+    setOpen(false);
+    setSearchOpen(false);
+  }
+
+  const accountPath = isAuthenticated ? "/account" : "/login";
+
+  const closeAll = useCallback(() => {
+    setOpen(false);
+    setSearchOpen(false);
+  }, []);
+
+  // Refresh cart/wishlist counts on navigation
   useEffect(() => {
     refreshCounts();
   }, [refreshCounts, location.pathname]);
 
-  const links = [
-    ["Home", "/"],
-    ["Shop", "/shop"],
-    ["Categories", "/categories"],
-    ["Deals", "/deals"],
-  ];
+  // Close on Escape or when clicking outside the header
+  useEffect(() => {
+    if (!open && !searchOpen) return undefined;
 
-  const accountPath = isAuthenticated
-    ? "/account"
-    : "/login";
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") closeAll();
+    };
+
+    const onPointerDown = (event) => {
+      if (headerRef.current && !headerRef.current.contains(event.target)) {
+        closeAll();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onPointerDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open, searchOpen, closeAll]);
 
   const submitSearch = (event) => {
     event.preventDefault();
 
     const query = search.trim();
 
-    if (!query) {
-      navigate("/shop");
-      setSearchOpen(false);
-      setOpen(false);
-      return;
-    }
-
     navigate(
-      `/shop?search=${encodeURIComponent(query)}`,
+      query
+        ? `/shop?search=${encodeURIComponent(query)}`
+        : "/shop",
     );
 
-    setSearchOpen(false);
-    setOpen(false);
+    setSearch("");
+    closeAll();
   };
 
-  const handleSearchClick = () => {
+  const toggleSearch = () => {
     setSearchOpen((current) => !current);
     setOpen(false);
   };
 
-  const icons = (
-    <>
-      {/* SEARCH */}
-      <button
-        type="button"
-        aria-label={
-          searchOpen
-            ? "Close search"
-            : "Search"
-        }
-        onClick={handleSearchClick}
-        className="icon-link cursor-pointer"
-      >
-        {searchOpen ? (
-          <X size={19} />
-        ) : (
-          <Search size={19} />
-        )}
-      </button>
+  const toggleMenu = () => {
+    setOpen((current) => !current);
+    setSearchOpen(false);
+  };
 
-      {/* WISHLIST */}
-      <Link
-        to="/wishlist"
-        aria-label="Wishlist"
-        onClick={() => setOpen(false)}
-        className="icon-link relative"
-      >
-        <Heart size={19} />
+  const searchButton = (
+    <button
+      type="button"
+      aria-label={searchOpen ? "Close search" : "Search"}
+      aria-expanded={searchOpen}
+      aria-controls="site-search"
+      onClick={toggleSearch}
+      className={iconClass}
+    >
+      {searchOpen ? (
+        <X size={20} aria-hidden="true" />
+      ) : (
+        <Search size={20} aria-hidden="true" />
+      )}
+    </button>
+  );
 
-        {wishlistCount > 0 && (
-          <span className="count-badge">
-            {wishlistCount}
-          </span>
-        )}
-      </Link>
+  const wishlistLink = (
+    <Link
+      to="/wishlist"
+      aria-label={countLabel("Wishlist", wishlistCount)}
+      onClick={closeAll}
+      className={iconClass}
+    >
+      <Heart size={20} aria-hidden="true" />
+      <CountBadge count={wishlistCount} />
+    </Link>
+  );
 
-      {/* CART */}
-      <Link
-        to="/cart"
-        aria-label="Cart"
-        onClick={() => setOpen(false)}
-        className="icon-link relative"
-      >
-        <ShoppingBag size={19} />
+  const cartLink = (
+    <Link
+      to="/cart"
+      aria-label={countLabel("Cart", cartCount)}
+      onClick={closeAll}
+      className={iconClass}
+    >
+      <ShoppingBag size={20} aria-hidden="true" />
+      <CountBadge count={cartCount} />
+    </Link>
+  );
 
-        {cartCount > 0 && (
-          <span className="count-badge">
-            {cartCount}
-          </span>
-        )}
-      </Link>
-
-      {/* ACCOUNT */}
-      <Link
-        to={accountPath}
-        aria-label={
-          isAuthenticated
-            ? `Account for ${
-                user?.first_name || "user"
-              }`
-            : "Sign in"
-        }
-        onClick={() => setOpen(false)}
-        className="icon-link"
-      >
-        <User size={19} />
-      </Link>
-    </>
+  const accountLink = (
+    <Link
+      to={accountPath}
+      aria-label={
+        isAuthenticated ? `Account for ${user?.first_name || "user"}` : "Sign in"
+      }
+      onClick={closeAll}
+      className={iconClass}
+    >
+      <User size={20} aria-hidden="true" />
+    </Link>
   );
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[#E3E5DF] bg-[#F5F5F1]/95 backdrop-blur">
-      <nav className="relative mx-auto flex h-[68px] max-w-7xl items-center justify-between px-6">
-
-        {/* LOGO */}
+    <header
+      ref={headerRef}
+      className="sticky top-0 z-50 border-b border-[#E3E5DF] bg-[#F5F5F1]/95 backdrop-blur"
+    >
+      <nav
+        aria-label="Primary"
+        className="mx-auto flex h-[68px] max-w-7xl items-center justify-between px-6"
+      >
+        {/* Logo */}
         <BrandMark
           alwaysShowName
           fallbackLogo
           className="gap-2"
           imageClassName="h-8 w-8 shrink-0 object-contain sm:h-9 sm:w-9"
-          nameClassName="text-base font-semibold tracking-tight text-[#344d3e] sm:text-lg"
+          nameClassName="text-base font-semibold tracking-tight text-[#344D3E] sm:text-lg"
         />
 
-        {/* DESKTOP NAVIGATION */}
+        {/* Desktop links */}
         <div className="hidden items-center gap-8 md:flex">
-          {links.map(([name, to]) => (
+          {links.map(({ name, to }) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
-              className={({ isActive }) =>
-                `text-sm transition hover:text-[#486B57] ${
-                  isActive
-                    ? "font-semibold text-[#486B57]"
-                    : "text-[#4f5851]"
-                }`
-              }
+              className={desktopLinkClass}
             >
               {name}
             </NavLink>
           ))}
         </div>
 
-        {/* DESKTOP ICONS */}
-        <div className="hidden items-center gap-4 md:flex">
-          {icons}
+        {/* Desktop icons */}
+        <div className="hidden items-center gap-1 md:flex">
+          {searchButton}
+          {wishlistLink}
+          {cartLink}
+          {accountLink}
         </div>
 
-        {/* MOBILE HEADER ACTIONS */}
-        <div className="flex items-center gap-2 md:hidden">
+        {/* Mobile header actions */}
+        <div className="flex items-center gap-1 md:hidden">
+          {searchButton}
+          {cartLink}
 
-          {/* MOBILE SEARCH */}
           <button
             type="button"
-            aria-label={
-              searchOpen
-                ? "Close search"
-                : "Search"
-            }
-            onClick={handleSearchClick}
-            className="cursor-pointer rounded-full p-2 text-[#39453d] transition hover:bg-[#DCE7DE]"
-          >
-            {searchOpen ? (
-              <X size={21} />
-            ) : (
-              <Search size={21} />
-            )}
-          </button>
-
-          {/* MOBILE MENU */}
-          <button
-            type="button"
-            className="cursor-pointer rounded-full p-2 text-[#39453d] transition hover:bg-[#DCE7DE]"
-            aria-label={
-              open
-                ? "Close menu"
-                : "Open menu"
-            }
-            onClick={() => {
-              setOpen((current) => !current);
-              setSearchOpen(false);
-            }}
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            aria-controls="mobile-menu"
+            onClick={toggleMenu}
+            className={iconClass}
           >
             {open ? (
-              <X size={21} />
+              <X size={21} aria-hidden="true" />
             ) : (
-              <Menu size={21} />
+              <Menu size={21} aria-hidden="true" />
             )}
           </button>
         </div>
-
-        {/* DESKTOP SEARCH */}
-        {searchOpen && (
-          <form
-            onSubmit={submitSearch}
-            className="absolute right-6 top-[76px] hidden w-[420px] rounded-xl border border-[#E3E5DF] bg-white p-3 shadow-lg md:block"
-          >
-            <div className="relative">
-              <Search
-                size={18}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#878787]"
-              />
-
-              <input
-                autoFocus
-                type="text"
-                value={search}
-                onChange={(event) =>
-                  setSearch(event.target.value)
-                }
-                placeholder="Search products, brands and more"
-                autoComplete="off"
-                className="h-11 w-full rounded-lg border border-[#D8DDD8] bg-white pl-10 pr-10 text-sm text-[#212121] outline-none transition focus:border-[#486B57] focus:ring-1 focus:ring-[#486B57]/20"
-              />
-
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  aria-label="Clear search"
-                  className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-[#878787] hover:bg-[#F1F3F6] hover:text-[#212121]"
-                >
-                  <X size={15} />
-                </button>
-              )}
-            </div>
-
-            <p className="px-1 pt-2 text-[11px] text-[#878787]">
-              Search products, brands and categories
-            </p>
-          </form>
-        )}
       </nav>
 
-      {/* MOBILE SEARCH BAR */}
-      {searchOpen && (
-        <form
-          onSubmit={submitSearch}
-          className="border-t border-[#E3E5DF] bg-[#F5F5F1] px-4 py-3 md:hidden"
-        >
-          <div className="relative">
-            <Search
-              size={17}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#878787]"
-            />
+      {/* Search: full-width bar on mobile, popover on desktop */}
+      <div className="relative mx-auto max-w-7xl">
+        {searchOpen && (
+          <SearchForm
+            value={search}
+            onChange={setSearch}
+            onSubmit={submitSearch}
+          />
+        )}
+      </div>
 
-            <input
-              autoFocus
-              type="text"
-              value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
-              placeholder="Search products, brands and more"
-              autoComplete="off"
-              className="h-11 w-full rounded-lg border border-[#D8DDD8] bg-white pl-9 pr-10 text-sm text-[#212121] outline-none focus:border-[#486B57]"
-            />
-
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label="Clear search"
-                className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-[#878787] hover:bg-[#F1F3F6]"
-              >
-                <X size={15} />
-              </button>
-            )}
-          </div>
-        </form>
-      )}
-
-      {/* MOBILE MENU */}
+      {/* Mobile menu */}
       {open && (
-        <div className="border-t border-[#E3E5DF] bg-[#F5F5F1] px-6 py-4 md:hidden">
-
-          {/* MOBILE LINKS */}
-          <div className="flex flex-col">
-            {links.map(([name, to]) => (
-              <Link
+        <div
+          id="mobile-menu"
+          className="border-t border-[#E3E5DF] bg-[#F5F5F1] px-6 py-4 md:hidden"
+        >
+          <nav aria-label="Mobile" className="flex flex-col">
+            {links.map(({ name, to }) => (
+              <NavLink
                 key={to}
-                onClick={() => setOpen(false)}
-                className="py-3 text-sm"
                 to={to}
+                end={to === "/"}
+                onClick={closeAll}
+                className={mobileLinkClass}
               >
                 {name}
-              </Link>
+              </NavLink>
             ))}
-          </div>
+          </nav>
 
-          {/* MOBILE ICONS */}
-          <div className="flex gap-5 border-t border-[#E3E5DF] pt-4">
-            <Link
-              to="/wishlist"
-              aria-label="Wishlist"
-              onClick={() => setOpen(false)}
-              className="icon-link relative"
-            >
-              <Heart size={19} />
-
-              {wishlistCount > 0 && (
-                <span className="count-badge">
-                  {wishlistCount}
-                </span>
-              )}
-            </Link>
-
-            <Link
-              to="/cart"
-              aria-label="Cart"
-              onClick={() => setOpen(false)}
-              className="icon-link relative"
-            >
-              <ShoppingBag size={19} />
-
-              {cartCount > 0 && (
-                <span className="count-badge">
-                  {cartCount}
-                </span>
-              )}
-            </Link>
-
-            <Link
-              to={accountPath}
-              aria-label={
-                isAuthenticated
-                  ? `Account for ${
-                      user?.first_name || "user"
-                    }`
-                  : "Sign in"
-              }
-              onClick={() => setOpen(false)}
-              className="icon-link"
-            >
-              <User size={19} />
-            </Link>
+          <div className="mt-2 flex gap-2 border-t border-[#E3E5DF] pt-4">
+            {wishlistLink}
+            {accountLink}
           </div>
         </div>
       )}
-
-      <style>{`
-        .icon-link {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          color: #39453d;
-          transition: color 0.15s;
-        }
-
-        .icon-link:hover {
-          color: #486B57;
-        }
-
-        .count-badge {
-          position: absolute;
-          right: -9px;
-          top: -8px;
-          min-width: 16px;
-          border-radius: 999px;
-          background: #486B57;
-          padding: 1px 4px;
-          text-align: center;
-          font-size: 9px;
-          color: #fff;
-        }
-      `}</style>
     </header>
   );
 }

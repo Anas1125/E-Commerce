@@ -1,8 +1,8 @@
 import {
-  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -20,7 +20,11 @@ import {
   X,
 } from "lucide-react";
 
-import { Link, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 
 import api from "../services/api";
 import useAuth from "../context/useAuth";
@@ -33,6 +37,136 @@ import {
   Price,
 } from "../components/Storefront";
 
+const NETWORK_ERROR =
+  "Network problem. Check your connection and try again.";
+
+const RAZORPAY_SCRIPT_SRC =
+  "https://checkout.razorpay.com/v1/checkout.js";
+
+const RAZORPAY_LOAD_TIMEOUT_MS = 10000;
+
+const REFRESH_CART_STATUSES = [400, 409, 422];
+
+
+const CHECKOUT_IDEMPOTENCY_STORAGE_KEY =
+  "terralens_checkout_attempt_v1";
+
+const CHECKOUT_PENDING_PAYMENT_STORAGE_KEY =
+  "terralens_pending_payment_v1";
+
+const readCheckoutAttempt = () => {
+  try {
+    const saved = sessionStorage.getItem(
+      CHECKOUT_IDEMPOTENCY_STORAGE_KEY
+    );
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveCheckoutAttempt = (attempt) => {
+  try {
+    sessionStorage.setItem(
+      CHECKOUT_IDEMPOTENCY_STORAGE_KEY,
+      JSON.stringify(attempt)
+    );
+  } catch {
+    // In-memory refs still protect retries on this page.
+  }
+};
+
+const readPendingPayment = () => {
+  try {
+    const saved = sessionStorage.getItem(
+      CHECKOUT_PENDING_PAYMENT_STORAGE_KEY
+    );
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+};
+
+const savePendingPayment = (payment) => {
+  try {
+    sessionStorage.setItem(
+      CHECKOUT_PENDING_PAYMENT_STORAGE_KEY,
+      JSON.stringify(payment)
+    );
+  } catch {
+    // Payment recovery may still work in the current page.
+  }
+};
+
+const clearCheckoutAttempt = () => {
+  try {
+    sessionStorage.removeItem(
+      CHECKOUT_IDEMPOTENCY_STORAGE_KEY
+    );
+  } catch {
+    // Storage may be unavailable.
+  }
+
+  try {
+    sessionStorage.removeItem(
+      CHECKOUT_PENDING_PAYMENT_STORAGE_KEY
+    );
+  } catch {
+    // Storage may be unavailable.
+  }
+};
+
+
+const getErrorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail;
+
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+
+  if (Array.isArray(detail) && detail[0]?.msg) {
+    return String(detail[0].msg).replace(/^Value error,\s*/i, "");
+  }
+
+  if (error?.response) {
+    return fallback;
+  }
+
+  if (error?.request) {
+    return NETWORK_ERROR;
+  }
+  return fallback;
+};
+
+const userFacingError = (message) => {
+  const error = new Error(message);
+  error.isUserFacing = true;
+  return error;
+};
+
+const formatINR = (value) => {
+  const amount = Number(value || 0);
+
+  return `₹${amount.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+const isValidPhone = (value) => {
+  if (!/^\+?[0-9\s()-]{7,20}$/.test(value)) {
+    return false;
+  }
+
+  const digits = value.replace(/\D/g, "");
+
+  return (
+    digits.length === 10 ||
+    (digits.length === 11 && digits.startsWith("0")) ||
+    (digits.length === 12 && digits.startsWith("91"))
+  );
+};
+
 const loadRazorpay = () =>
   new Promise((resolve) => {
     if (window.Razorpay) {
@@ -40,33 +174,84 @@ const loadRazorpay = () =>
       return;
     }
 
-    const script = document.createElement("script");
+    let settled = false;
 
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
+    const finish = (result, scriptToRemove) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+
+      if (!result && scriptToRemove) {
+        scriptToRemove.remove();
+      }
+
+      resolve(result);
+    };
+
+    const timer = setTimeout(
+      () => finish(false, script),
+      RAZORPAY_LOAD_TIMEOUT_MS,
+    );
+
+    let script = document.querySelector(
+      `script[src="${RAZORPAY_SCRIPT_SRC}"]`,
+    );
+
+    if (script) {
+      script.addEventListener(
+        "load",
+        () => finish(Boolean(window.Razorpay), script),
+        { once: true },
+      );
+
+      script.addEventListener(
+        "error",
+        () => finish(false, script),
+        { once: true },
+      );
+
+      return;
+    }
+
+    script = document.createElement("script");
+    script.src = RAZORPAY_SCRIPT_SRC;
+
+    script.onload = () =>
+      finish(Boolean(window.Razorpay), script);
+
+    script.onerror = () => finish(false, script);
 
     document.body.appendChild(script);
   });
 
-function Checkout() {
+function CheckoutContent() {
   const {
     user,
     isAuthenticated,
+    loading: authLoading,
     refreshCounts,
     updateUser,
   } = useAuth();
+
   const navigate = useNavigate();
-  const { siteName = "TerraLens" } = useContext(
-    SiteBrandingContext,
-  );
+  const location = useLocation();
+
+  const { siteName = "TerraLens" } =
+    useContext(SiteBrandingContext) || {};
+
   const [cart, setCart] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [selected, setSelected] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [coupon, setCoupon] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState("");
 
   const [couponsOpen, setCouponsOpen] = useState(false);
   const [availableCoupons, setAvailableCoupons] = useState([]);
@@ -75,59 +260,268 @@ function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState("cod");
   const [confirmedCod, setConfirmedCod] = useState(false);
 
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [step, setStep] = useState(1);
+
+  const [paymentPending, setPaymentPending] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+
   const [editingContact, setEditingContact] = useState(null);
   const [contactValue, setContactValue] = useState("");
   const [contactSaving, setContactSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!isAuthenticated) {
-      setLoading(false);
+  const busyRef = useRef(false);
+  const confirmingRef = useRef(false);
+  const paymentLockedRef = useRef(false);
+  const pendingOrderRef = useRef(null);
+  const pendingPaymentRef = useRef(null);
+  const pendingIdempotencyRef = useRef(null);
+  const confirmRef = useRef(null);
+  const mountedRef = useRef(true);
+  const errorRef = useRef(null);
+  const modalRef = useRef(null);
+  const couponLoadingRef = useRef(false);
+
+  const hasPhone = Boolean(user?.phone_number);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || !user?.id) {
       return;
     }
 
-    try {
-      setLoading(true);
-      setError("");
+    const saved = readPendingPayment();
 
-      const [cartResponse, addressResponse] = await Promise.all([
-        api.get("/cart/"),
-        api.get("/addresses/"),
-      ]);
-
-      setCart(cartResponse.data);
-      setAddresses(addressResponse.data);
-
-      setSelected(
-        String(
-          addressResponse.data.find((item) => item.is_default)?.id ||
-            addressResponse.data[0]?.id ||
-            "",
-        ),
-      );
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.detail ||
-          "Unable to prepare checkout.",
-      );
-    } finally {
-      setLoading(false);
+    if (
+      !saved ||
+      String(saved.userId) !== String(user.id)
+    ) {
+      return;
     }
-  }, [isAuthenticated]);
+
+    const orderId = Number(saved.orderId);
+    const paymentId = Number(saved.paymentId);
+
+    if (
+      !Number.isSafeInteger(orderId) ||
+      orderId <= 0 ||
+      !Number.isSafeInteger(paymentId) ||
+      paymentId <= 0 ||
+      typeof saved.orderKey !== "string" ||
+      !saved.orderKey
+    ) {
+      return;
+    }
+
+    const order = {
+      id: orderId,
+      order_number: saved.orderNumber || String(orderId),
+    };
+
+    const payment = {
+      id: paymentId,
+      gateway_order_id: saved.gatewayOrderId,
+      amount: saved.amount,
+      currency: saved.currency,
+    };
+
+    pendingOrderRef.current = {
+      key: saved.orderKey,
+      order,
+      idempotencyKey: saved.idempotencyKey,
+    };
+
+    pendingPaymentRef.current = {
+      key: `${orderId}|${saved.orderKey}`,
+      payment,
+    };
+
+    pendingIdempotencyRef.current = {
+      userId: saved.userId,
+      orderKey: saved.orderKey,
+      idempotencyKey: saved.idempotencyKey,
+    };
+  }, [authLoading, isAuthenticated, user?.id]);
 
   useEffect(() => {
-    const timer = setTimeout(load, 0);
+    if (authLoading || !isAuthenticated) {
+      return;
+    }
 
-    return () => clearTimeout(timer);
-  }, [load]);
+    let cancelled = false;
+
+    const loadCheckout = async () => {
+      try {
+        const [cartResponse, addressResponse] =
+          await Promise.all([
+            api.get("/cart/"),
+            api.get("/addresses/"),
+          ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setCart(cartResponse.data);
+        setAddresses(addressResponse.data);
+
+        setSelected(
+          String(
+            addressResponse.data.find(
+              (item) => item.is_default,
+            )?.id ||
+              addressResponse.data[0]?.id ||
+              "",
+          ),
+        );
+
+        const saved = readPendingPayment();
+
+        if (
+          saved &&
+          String(saved.userId) === String(user?.id) &&
+          Number.isSafeInteger(Number(saved.orderId)) &&
+          Number(saved.orderId) > 0 &&
+          Number.isSafeInteger(Number(saved.paymentId)) &&
+          Number(saved.paymentId) > 0 &&
+          typeof saved.orderKey === "string" &&
+          saved.orderKey
+        ) {
+          const order = {
+            id: Number(saved.orderId),
+            order_number: saved.orderNumber || String(saved.orderId),
+          };
+
+          const payment = {
+            id: Number(saved.paymentId),
+            gateway_order_id: saved.gatewayOrderId,
+            amount: saved.amount,
+            currency: saved.currency,
+          };
+
+          pendingOrderRef.current = {
+            key: saved.orderKey,
+            order,
+            idempotencyKey: saved.idempotencyKey,
+          };
+
+          pendingPaymentRef.current = {
+            key: `${order.id}|${saved.orderKey}`,
+            payment,
+          };
+
+          pendingIdempotencyRef.current = {
+            userId: saved.userId,
+            orderKey: saved.orderKey,
+            idempotencyKey: saved.idempotencyKey,
+          };
+
+          setPaymentPending(order.order_number);
+          setStep(2);
+        }
+
+        setError("");
+      } catch (requestError) {
+        if (cancelled) {
+          return;
+        }
+
+        setError(
+          getErrorMessage(
+            requestError,
+            "Unable to prepare checkout.",
+          ),
+        );
+      } finally {
+        if (!cancelled) {
+          setLoaded(true);
+        }
+      }
+    };
+
+    loadCheckout();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, isAuthenticated, reloadKey]);
+
+  useEffect(() => {
+    if (!couponsOpen) {
+      return;
+    }
+
+    const previouslyFocused = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        if (!couponLoadingRef.current) {
+          setCouponsOpen(false);
+        }
+        return;
+      }
+
+      if (event.key !== "Tab" || !modalRef.current) {
+        return;
+      }
+
+      const focusable = modalRef.current.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+
+      if (!focusable.length) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        document.activeElement === last
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus?.();
+    };
+  }, [couponsOpen]);
+
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [error]);
 
   const selectedAddress = useMemo(
     () =>
       addresses.find(
-        (address) => String(address.id) === String(selected),
+        (address) =>
+          String(address.id) === String(selected),
       ),
     [addresses, selected],
   );
@@ -142,17 +536,23 @@ function Checkout() {
     0,
     subtotal - couponDiscount,
   );
+  const locked = busy || confirming || Boolean(paymentPending);
 
   const applyCoupon = async (couponCode = coupon) => {
-    const code = couponCode.trim();
-
-    if (!code) {
-      setError("Enter a coupon code.");
+    if (busyRef.current || couponLoadingRef.current) {
       return false;
     }
 
+    const code = String(couponCode || "").trim();
+
+    if (!code) {
+      setCouponError("Enter a coupon code.");
+      return false;
+    }
+
+    couponLoadingRef.current = true;
     setCouponLoading(true);
-    setError("");
+    setCouponError("");
 
     try {
       const { data } = await api.post("/coupons/validate", {
@@ -166,37 +566,47 @@ function Checkout() {
     } catch (requestError) {
       setAppliedCoupon(null);
 
-      setError(
-        requestError.response?.data?.detail ||
+      setCouponError(
+        getErrorMessage(
+          requestError,
           "Unable to apply this coupon.",
+        ),
       );
 
       return false;
     } finally {
+      couponLoadingRef.current = false;
       setCouponLoading(false);
     }
   };
 
   const removeCoupon = () => {
+    if (busyRef.current) {
+      return;
+    }
+
     setCoupon("");
     setAppliedCoupon(null);
-    setError("");
+    setCouponError("");
   };
 
   const openCoupons = async () => {
     setCouponsOpen(true);
     setCouponsLoading(true);
-    setError("");
+    setCouponError("");
 
     try {
       const { data } = await api.get("/coupons/available");
+
       setAvailableCoupons(data);
     } catch (requestError) {
       setAvailableCoupons([]);
 
-      setError(
-        requestError.response?.data?.detail ||
+      setCouponError(
+        getErrorMessage(
+          requestError,
           "Unable to load available coupons.",
+        ),
       );
     } finally {
       setCouponsLoading(false);
@@ -224,11 +634,11 @@ function Checkout() {
   const startContactEdit = (type) => {
     setEditingContact(type);
 
-    if (type === "phone") {
-      setContactValue(user?.phone_number || "");
-    } else {
-      setContactValue(user?.email || "");
-    }
+    setContactValue(
+      type === "phone"
+        ? user?.phone_number || ""
+        : user?.email || "",
+    );
 
     setError("");
   };
@@ -243,6 +653,10 @@ function Checkout() {
   };
 
   const saveContact = async () => {
+    if (contactSaving) {
+      return;
+    }
+
     const value = contactValue.trim();
 
     if (!value) {
@@ -254,8 +668,8 @@ function Checkout() {
       return;
     }
 
-    if (editingContact === "phone" && !/^\+?[0-9\s()-]{7,20}$/.test(value)) {
-      setError("Enter a valid phone number.");
+    if (editingContact === "phone" && !isValidPhone(value)) {
+      setError("Enter a valid 10-digit mobile number.");
       return;
     }
 
@@ -287,17 +701,224 @@ function Checkout() {
       setContactValue("");
     } catch (requestError) {
       setError(
-        requestError.response?.data?.detail ||
+        getErrorMessage(
+          requestError,
           "Unable to update your contact information.",
+        ),
       );
     } finally {
       setContactSaving(false);
     }
   };
 
+  const releaseBusy = () => {
+    busyRef.current = false;
+
+    if (mountedRef.current) {
+      setBusy(false);
+    }
+  };
+
+  const refreshCart = async () => {
+    try {
+      const { data } = await api.get("/cart/");
+
+      if (mountedRef.current) {
+        setCart(data);
+      }
+    } catch {
+      // Best effort: the original error is already on screen.
+    }
+  };
+  
+
+  const confirmPayment = async () => {
+    const context = confirmRef.current;
+
+    if (!context || confirmingRef.current) {
+      return;
+    }
+
+    confirmingRef.current = true;
+    setConfirming(true);
+    setError("");
+
+    const { order, payment, response } = context;
+
+    try {
+      const { data: paymentResult } = await api.post(
+        "/payments/complete",
+        {
+          payment_id: payment.id,
+          gateway_order_id: response.razorpay_order_id,
+          gateway_payment_id: response.razorpay_payment_id,
+          gateway_signature: response.razorpay_signature,
+        },
+      );
+
+      if (
+        paymentResult?.status !== "paid" ||
+        paymentResult?.order_id !== order.id
+      ) {
+        throw userFacingError(
+          "Payment has not been confirmed yet.",
+        );
+      }
+
+      const { data: confirmedOrder } = await api.get(
+        `/orders/${order.id}`,
+      );
+
+      if (
+        confirmedOrder?.payment_status !== "paid" ||
+        confirmedOrder?.order_status !== "confirmed"
+      ) {
+        throw userFacingError(
+          "Payment was processed, but the order still needs confirmation.",
+        );
+      }
+
+      confirmRef.current = null;
+      pendingOrderRef.current = null;
+      pendingPaymentRef.current = null;
+      pendingIdempotencyRef.current = null;
+
+      clearCheckoutAttempt();
+
+      try {
+        await refreshCounts();
+      } catch {
+        // The order is already confirmed.
+      }
+
+      navigate("/order-success", {
+        state: {
+          order: confirmedOrder,
+          payment: paymentResult,
+        },
+      });
+    } catch {
+      setPaymentPending(order.order_number);
+
+      setError(
+        `We couldn't confirm the final status of order ${order.order_number}. Please don't pay again. Retry the status check or contact support.`,
+      );
+
+      releaseBusy();
+    } finally {
+      confirmingRef.current = false;
+
+      if (mountedRef.current) {
+        setConfirming(false);
+      }
+    }
+  };
+
+  const checkPaymentStatus = async () => {
+    if (confirmingRef.current) return;
+
+    const context = confirmRef.current;
+    const payment =
+      context?.payment ?? pendingPaymentRef.current?.payment;
+
+    if (!payment?.id) {
+      setError(
+        "Payment details are unavailable in this checkout session. Please check My Orders and don't pay again."
+      );
+      return;
+    }
+
+    confirmingRef.current = true;
+    setConfirming(true);
+    setError("");
+
+    try {
+      const { data: paymentResult } = await api.post(
+        "/payments/status",
+        { payment_id: payment.id }
+      );
+
+      if (paymentResult?.status !== "paid") {
+        setError(
+          "Razorpay has not confirmed a captured payment yet. Your order remains unresolved. Please don't pay again; try checking again shortly."
+        );
+        return;
+      }
+
+      const { data: confirmedOrder } = await api.get(
+        `/orders/${paymentResult.order_id}`
+      );
+
+      if (
+        confirmedOrder?.payment_status !== "paid" ||
+        confirmedOrder?.order_status !== "confirmed"
+      ) {
+        throw userFacingError(
+          "Payment was found, but the order still needs confirmation. Please don't pay again."
+        );
+      }
+
+      confirmRef.current = null;
+      pendingOrderRef.current = null;
+      pendingPaymentRef.current = null;
+      pendingIdempotencyRef.current = null;
+      clearCheckoutAttempt();
+
+      try {
+        await refreshCounts();
+      } catch {
+        // The order is already confirmed.
+      }
+
+      navigate("/order-success", {
+        state: {
+          order: confirmedOrder,
+          payment: paymentResult,
+        },
+      });
+    } catch (requestError) {
+      setError(
+        getErrorMessage(
+          requestError,
+          "Unable to verify payment status. Please don't pay again."
+        )
+      );
+    } finally {
+      confirmingRef.current = false;
+
+      if (mountedRef.current) {
+        setConfirming(false);
+      }
+    }
+  };
+
   const placeOrder = async () => {
-    if (!selected) {
+    if (
+      busyRef.current ||
+      confirmingRef.current ||
+      paymentLockedRef.current ||
+      couponLoadingRef.current ||
+      contactSaving
+    ) {
+      return;
+    }
+
+    if (editingContact) {
+      setError("Save or cancel your contact change first.");
+      setStep(1);
+      return;
+    }
+
+    if (!selectedAddress) {
       setError("Select a delivery address.");
+      setStep(1);
+      return;
+    }
+
+    if (!hasPhone) {
+      setError(
+        "Add a phone number so we can deliver your order.",
+      );
       setStep(1);
       return;
     }
@@ -309,18 +930,130 @@ function Checkout() {
       return;
     }
 
+    busyRef.current = true;
     setBusy(true);
     setError("");
 
     try {
-      const { data: order } = await api.post("/orders/", {
-        shipping_address_id: Number(selected),
-        coupon_code: appliedCoupon?.code || null,
-        payment_method: paymentMethod,
+
+      const razorpayKey =
+        paymentMethod === "upi"
+          ? import.meta.env.VITE_RAZORPAY_KEY_ID
+          : null;
+
+      if (paymentMethod === "upi") {
+        if (!razorpayKey) {
+          throw userFacingError(
+            "Online payments are not available right now. Please choose Cash on Delivery or try again later.",
+          );
+        }
+
+        const razorpayLoaded = await loadRazorpay();
+
+        if (!razorpayLoaded) {
+          throw userFacingError(
+            "Unable to load Razorpay Checkout. Please try again.",
+          );
+        }
+      }
+
+      const cartItemsKey = (cart?.items || [])
+        .map((item) => [
+          item.product_id ?? item.product?.id ?? "",
+          item.quantity ?? "",
+        ])
+        .sort((a, b) =>
+          String(a[0]).localeCompare(String(b[0])),
+        );
+
+      const orderKey = JSON.stringify({
+        userId: user?.id ?? "",
+        addressId: selectedAddress.id,
+        couponCode: appliedCoupon?.code || "",
+        paymentMethod,
+        subtotal: cart?.subtotal ?? "",
+        items: cartItemsKey,
       });
 
+
+      let order;
+
+      if (pendingOrderRef.current?.key === orderKey) {
+        order = pendingOrderRef.current.order;
+      } else {
+        let data;
+        let idempotencyKey;
+
+        try {    
+
+          if (
+            pendingIdempotencyRef.current?.orderKey === orderKey
+          ) {
+            idempotencyKey =
+              pendingIdempotencyRef.current.idempotencyKey;
+          } else {
+            const savedAttempt = readCheckoutAttempt();
+
+            if (
+              savedAttempt?.orderKey === orderKey &&
+              String(savedAttempt.userId) === String(user?.id)
+            ) {
+              idempotencyKey = savedAttempt.idempotencyKey;
+            } else {
+              idempotencyKey = crypto.randomUUID();
+            }
+
+            const attempt = {
+              userId: user?.id,
+              orderKey,
+              idempotencyKey,
+            };
+
+            pendingIdempotencyRef.current = attempt;
+            saveCheckoutAttempt(attempt);
+          }
+
+          ({ data } = await api.post("/orders/", {
+            shipping_address_id: selectedAddress.id,
+            coupon_code: appliedCoupon?.code || null,
+            payment_method: paymentMethod,
+            idempotency_key: idempotencyKey,
+          }));
+
+        } catch (orderError) {
+          if (
+            REFRESH_CART_STATUSES.includes(
+              orderError.response?.status,
+            )
+          ) {
+            refreshCart();
+          }
+
+          throw orderError;
+        }
+
+        order = data;
+
+        pendingOrderRef.current = {
+          key: orderKey,
+          order,
+          idempotencyKey,
+        };
+
+        pendingPaymentRef.current = null;
+      }
+
       if (paymentMethod === "cod") {
-        await refreshCounts();
+        pendingOrderRef.current = null;
+        pendingPaymentRef.current = null;
+
+        try {
+          await refreshCounts();
+        } catch {
+          // The order is placed. wont create a duplicate order.
+        }
+        pendingIdempotencyRef.current = null;
+        clearCheckoutAttempt();
 
         navigate("/order-success", {
           state: { order },
@@ -329,127 +1062,144 @@ function Checkout() {
         return;
       }
 
-      const razorpayLoaded = await loadRazorpay();
+      const paymentKey = [order.id, orderKey].join("|");
 
-      if (!razorpayLoaded) {
-        throw new Error(
-          "Unable to load Razorpay Checkout. Please try again.",
-        );
+      let payment;
+
+      if (
+        pendingPaymentRef.current?.key === paymentKey &&
+        pendingPaymentRef.current.payment
+      ) {
+        payment = pendingPaymentRef.current.payment;
+      } else {
+        const { data } = await api.post("/payments/", {
+          order_id: order.id,
+        });
+
+        payment = data;
+
+        pendingPaymentRef.current = {
+          key: paymentKey,
+          payment,
+        };
       }
-
-      const { data: payment } = await api.post("/payments/", {
-        order_id: order.id,
+      savePendingPayment({
+        userId: user?.id,
+        orderId: order.id,
+        orderNumber: order.order_number,
+        paymentId: payment.id,
+        gatewayOrderId: payment.gateway_order_id,
+        amount: payment.amount,
+        currency: payment.currency,
+        orderKey,
+        idempotencyKey:
+          pendingIdempotencyRef.current?.idempotencyKey ??
+          readCheckoutAttempt()?.idempotencyKey ??
+          null,
       });
+      let paymentReported = false;
 
       const razorpayOptions = {
-        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-        amount: Math.round(
-          Number(payment.amount) * 100,
-        ),
+        key: razorpayKey,
+        amount: Math.round(Number(payment.amount) * 100),
         currency: payment.currency,
+
         name: siteName,
         description: `Order ${order.order_number}`,
         order_id: payment.gateway_order_id,
+
         prefill: {
-          name: [
-            user?.first_name,
-            user?.last_name,
-          ]
+          name: [user?.first_name, user?.last_name]
             .filter(Boolean)
             .join(" "),
           email: user?.email || "",
           contact: user?.phone_number || "",
         },
+
         theme: {
           color: "#2874F0",
         },
-        method: {
-          upi: true,
+
+        handler: (response) => {
+          paymentReported = true;
+          paymentLockedRef.current = true;
+
+          confirmRef.current = { order, payment, response };
+
+          confirmPayment();
         },
-        handler: async (response) => {
-          try {
-            setBusy(true);
-            setError("");
-            await api.post("/payments/complete", {
-              payment_id: payment.id,
-              gateway_order_id:
-                response.razorpay_order_id,
-              gateway_payment_id:
-                response.razorpay_payment_id,
-              gateway_signature:
-                response.razorpay_signature,
-              payment_method: "upi",
-            });
-            await refreshCounts();
-            navigate("/order-success", {
-              state: {
-                order: {
-                  ...order,
-                  order_status: "confirmed",
-                  payment_status: "paid",
-                },
-              },
-            });
-          } catch (verificationError) {
-            setError(
-              verificationError.response?.data?.detail ||
-                "Payment was received, but verification failed. Please contact support.",
-            );
-          } finally {
-            setBusy(false);
-          }
-        },
+
+        
         modal: {
           ondismiss: async () => {
-            try {
-              await api.post("/payments/fail", {
-                payment_id: payment.id,
-              });
-            } catch {
-              // Payment cancellation is handled silently here.
+            if (paymentReported) {
+              return;
             }
-            setBusy(false);
-            setError(
-              "UPI payment was cancelled. Your order was not completed.",
-            );
+
+            let confirmedFailed = false;
+
+            try {
+              const { data: failedPayment } = await api.post(
+                "/payments/fail",
+                {
+                  payment_id: payment.id,
+                },
+              );
+
+              confirmedFailed = failedPayment?.status === "failed";
+            } catch {
+              // The server may be unable to confirm failure yet.
+              // Keep the existing order and payment for a safe retry.
+            }
+
+            if (confirmedFailed) {
+              pendingOrderRef.current = null;
+              pendingPaymentRef.current = null;
+              pendingIdempotencyRef.current = null;
+              confirmRef.current = null;
+              paymentLockedRef.current = false;
+
+              clearCheckoutAttempt();
+
+              setError(
+                "Razorpay confirmed that this payment failed. You can place a new order.",
+              );
+            } else {
+              setError(
+                "Payment window closed. The final payment status is not confirmed yet. Your existing order is being kept pending; retry using the same checkout and don't create another order.",
+              );
+            }
+
+            releaseBusy();
           },
         },
-      }; 
 
-      const razorpay = new window.Razorpay(
-        razorpayOptions,
-      );
+      };
 
-      razorpay.on(
-        "payment.failed",
-        async () => {
-          try {
-            await api.post("/payments/fail", {
-              payment_id: payment.id,
-            });
-          } catch {
-            // The backend failure endpoint is best-effort here.
-          }
+      const razorpay = new window.Razorpay(razorpayOptions);
 
-          setBusy(false);
-
-          setError(
-            "UPI payment failed. Please try again.",
-          );
-        },
-      );
+      razorpay.on("payment.failed", () => {
+        setError(
+          "Payment failed. You can try again in the payment window.",
+        );
+      });
 
       razorpay.open();
     } catch (requestError) {
       setError(
-        requestError.response?.data?.detail ||
-          requestError.message ||
-          "We couldn't start the payment. Please try again.",
+        requestError.isUserFacing
+          ? requestError.message
+          : getErrorMessage(
+              requestError,
+              "We couldn't place your order. Please try again.",
+            ),
       );
 
-      setBusy(false);
+      releaseBusy();
     }
   };
+
+  const loading = authLoading || (isAuthenticated && !loaded);
 
   if (loading) {
     return (
@@ -459,6 +1209,7 @@ function Checkout() {
           description={`Complete your ${siteName} order securely.`}
           noIndex
         />
+
         <div className="mx-auto max-w-7xl">
           <LoadingState />
         </div>
@@ -474,13 +1225,60 @@ function Checkout() {
           description={`Complete your ${siteName} order securely.`}
           noIndex
         />
+
         <div className="mx-auto max-w-4xl">
-          <EmptyState
-            title="Sign in to check out"
-            text="Your cart and delivery details are linked to your account."
-            action="Sign in"
-            to="/login"
-          />
+          <div className="rounded-md border border-[#E0E0E0] bg-white px-6 py-16 text-center">
+            <h1 className="text-2xl font-bold text-[#212121]">
+              Sign in to check out
+            </h1>
+
+            <p className="mx-auto mt-2 max-w-md text-sm text-[#878787]">
+              Your cart and delivery details are linked to your
+              account.
+            </p>
+
+            <Link
+              to="/login"
+              state={{ from: location }}
+              className="mt-6 inline-flex cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-7 py-3 text-sm font-bold !text-white transition hover:bg-[#1f65d6]"
+            >
+              Sign in
+              <ArrowRight size={16} />
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !cart) {
+    return (
+      <div className="min-h-screen bg-[#F1F3F6] px-6 py-20">
+        <SEO
+          title="Checkout"
+          description={`Complete your ${siteName} order securely.`}
+          noIndex
+        />
+
+        <div className="mx-auto max-w-4xl">
+          <div
+            role="alert"
+            className="rounded-md border border-[#F2C7C2] bg-[#FFF1EF] px-4 py-3 text-sm text-[#C62828]"
+          >
+            {error}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setError("");
+              setLoaded(false);
+              setReloadKey((key) => key + 1);
+            }}
+            className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#2874F0] px-6 py-3 text-sm font-bold !text-white transition hover:bg-[#1f65d6]"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );
@@ -494,6 +1292,7 @@ function Checkout() {
           description={`Complete your ${siteName} order securely.`}
           noIndex
         />
+
         <div className="mx-auto max-w-4xl">
           <EmptyState
             title="Your cart is empty"
@@ -506,13 +1305,22 @@ function Checkout() {
     );
   }
 
+  const payDisabled =
+    busy ||
+    confirming ||
+    contactSaving ||
+    couponLoading ||
+    !selected ||
+    (paymentMethod === "cod" && !confirmedCod);
+
   return (
     <>
-    <SEO
-      title="Checkout"
-      description={`Complete your ${siteName} order securely.`}
-      noIndex
-    />
+      <SEO
+        title="Checkout"
+        description={`Complete your ${siteName} order securely.`}
+        noIndex
+      />
+
       <div className="min-h-screen bg-[#F1F3F6] pb-16">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           {/* HEADER */}
@@ -552,9 +1360,7 @@ function Checkout() {
 
                 <span
                   className={`text-sm font-semibold ${
-                    step >= 1
-                      ? "text-[#212121]"
-                      : "text-[#878787]"
+                    step >= 1 ? "text-[#212121]" : "text-[#878787]"
                   }`}
                 >
                   Delivery
@@ -576,9 +1382,7 @@ function Checkout() {
 
                 <span
                   className={`text-sm font-semibold ${
-                    step >= 2
-                      ? "text-[#212121]"
-                      : "text-[#878787]"
+                    step >= 2 ? "text-[#212121]" : "text-[#878787]"
                   }`}
                 >
                   Review & Payment
@@ -590,6 +1394,7 @@ function Checkout() {
           {/* ERROR */}
           {error && (
             <div
+              ref={errorRef}
               role="alert"
               className="mb-5 rounded-md border border-[#F2C7C2] bg-[#FFF1EF] px-4 py-3 text-sm text-[#C62828]"
             >
@@ -600,7 +1405,6 @@ function Checkout() {
           <div className="grid gap-5 lg:grid-cols-[1fr_390px]">
             {/* LEFT */}
             <div className="space-y-5">
-              {/* STEP 1 */}
               {step === 1 ? (
                 <>
                   {/* DELIVERY ADDRESS */}
@@ -655,8 +1459,7 @@ function Checkout() {
                         <div className="space-y-3">
                           {addresses.map((address) => {
                             const isSelected =
-                              String(address.id) ===
-                              String(selected);
+                              String(address.id) === String(selected);
 
                             return (
                               <label
@@ -674,9 +1477,7 @@ function Checkout() {
                                     value={address.id}
                                     checked={isSelected}
                                     onChange={(event) =>
-                                      setSelected(
-                                        event.target.value,
-                                      )
+                                      setSelected(event.target.value)
                                     }
                                     className="mt-1 cursor-pointer"
                                   />
@@ -701,8 +1502,7 @@ function Checkout() {
                                     )}
 
                                     <p className="mt-1 text-sm text-[#555]">
-                                      {address.city},{" "}
-                                      {address.state}{" "}
+                                      {address.city}, {address.state}{" "}
                                       {address.postal_code}
                                     </p>
 
@@ -740,7 +1540,6 @@ function Checkout() {
                     </div>
 
                     <div className="grid gap-3 p-5 sm:grid-cols-2">
-
                       {/* PHONE */}
                       <div className="rounded-md border border-[#E0E0E0] bg-[#FAFAFA] p-4">
                         {editingContact === "phone" ? (
@@ -752,16 +1551,27 @@ function Checkout() {
                               />
 
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-[#878787]">
+                                <label
+                                  htmlFor="checkout-phone"
+                                  className="text-xs font-semibold uppercase tracking-wide text-[#878787]"
+                                >
                                   Phone number
-                                </p>
+                                </label>
 
                                 <input
+                                  id="checkout-phone"
                                   type="tel"
+                                  inputMode="tel"
                                   value={contactValue}
                                   onChange={(event) => {
                                     setContactValue(event.target.value);
                                     setError("");
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      saveContact();
+                                    }
                                   }}
                                   placeholder="Enter phone number"
                                   autoFocus
@@ -805,8 +1615,15 @@ function Checkout() {
                                 </p>
 
                                 <p className="mt-1 break-words text-sm font-semibold text-[#212121]">
-                                  {user?.phone_number || "Phone number not added"}
+                                  {user?.phone_number ||
+                                    "Phone number not added"}
                                 </p>
+
+                                {!hasPhone && (
+                                  <p className="mt-1 text-xs text-[#C62828]">
+                                    Required for delivery
+                                  </p>
+                                )}
                               </div>
                             </div>
 
@@ -815,7 +1632,7 @@ function Checkout() {
                               onClick={() => startContactEdit("phone")}
                               className="shrink-0 cursor-pointer text-sm font-semibold text-[#2874F0] hover:underline"
                             >
-                              {user?.phone_number ? "Edit" : "Add"}
+                              {hasPhone ? "Edit" : "Add"}
                             </button>
                           </div>
                         )}
@@ -832,16 +1649,26 @@ function Checkout() {
                               />
 
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-[#878787]">
+                                <label
+                                  htmlFor="checkout-email"
+                                  className="text-xs font-semibold uppercase tracking-wide text-[#878787]"
+                                >
                                   Email address
-                                </p>
+                                </label>
 
                                 <input
+                                  id="checkout-email"
                                   type="email"
                                   value={contactValue}
                                   onChange={(event) => {
                                     setContactValue(event.target.value);
                                     setError("");
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      saveContact();
+                                    }
                                   }}
                                   placeholder="Enter email address"
                                   autoFocus
@@ -907,7 +1734,9 @@ function Checkout() {
                   {addresses.length > 0 && (
                     <button
                       type="button"
-                      disabled={!selected}
+                      disabled={
+                        !selected || Boolean(editingContact) || !hasPhone
+                      }
                       onClick={() => {
                         setError("");
                         setStep(2);
@@ -917,6 +1746,14 @@ function Checkout() {
                       Continue to review
                       <ArrowRight size={17} />
                     </button>
+                  )}
+
+                  {addresses.length > 0 && (editingContact || !hasPhone) && (
+                    <p className="-mt-2 text-center text-xs text-[#878787]">
+                      {editingContact
+                        ? "Save or cancel your contact change to continue."
+                        : "Add a phone number to continue."}
+                    </p>
                   )}
                 </>
               ) : (
@@ -944,7 +1781,8 @@ function Checkout() {
                       <button
                         type="button"
                         onClick={() => setStep(1)}
-                        className="cursor-pointer text-sm font-semibold text-[#2874F0]"
+                        disabled={locked}
+                        className="cursor-pointer text-sm font-semibold text-[#2874F0] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Change
                       </button>
@@ -961,33 +1799,22 @@ function Checkout() {
 
                     <div className="grid gap-3 p-5 sm:grid-cols-2">
                       <div className="flex items-center gap-3">
-                        <Phone
-                          size={17}
-                          className="text-[#2874F0]"
-                        />
+                        <Phone size={17} className="text-[#2874F0]" />
 
                         <div className="min-w-0">
-                          <p className="text-xs text-[#878787]">
-                            Phone
-                          </p>
+                          <p className="text-xs text-[#878787]">Phone</p>
 
                           <p className="break-words text-sm font-semibold text-[#212121]">
-                            {user?.phone_number ||
-                              "Phone number not added"}
+                            {user?.phone_number || "Phone number not added"}
                           </p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Mail
-                          size={17}
-                          className="text-[#2874F0]"
-                        />
+                        <Mail size={17} className="text-[#2874F0]" />
 
                         <div className="min-w-0">
-                          <p className="text-xs text-[#878787]">
-                            Email
-                          </p>
+                          <p className="text-xs text-[#878787]">Email</p>
 
                           <p className="break-words text-sm font-semibold text-[#212121]">
                             {user?.email || "Email not available"}
@@ -1014,47 +1841,35 @@ function Checkout() {
                         {[
                           ["cod", "Cash on Delivery"],
                           ["upi", "UPI"],
-                        ].map(([value, label]) => {
-                          const disabled = false;
+                        ].map(([value, label]) => (
+                          <label
+                            key={value}
+                            className={`flex cursor-pointer items-center justify-between rounded-md border p-4 ${
+                              paymentMethod === value
+                                ? "border-[#2874F0] bg-[#F5F9FF]"
+                                : "border-[#E0E0E0]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="radio"
+                                name="payment-method"
+                                value={value}
+                                disabled={locked}
+                                checked={paymentMethod === value}
+                                onChange={() => {
+                                  setPaymentMethod(value);
+                                  setError("");
+                                }}
+                                className="cursor-pointer disabled:cursor-not-allowed"
+                              />
 
-                          return (
-                            <label
-                              key={value}
-                              className={`flex items-center justify-between rounded-md border p-4 ${
-                                disabled
-                                  ? "cursor-not-allowed opacity-60"
-                                  : "cursor-pointer"
-                              } ${
-                                paymentMethod === value
-                                  ? "border-[#2874F0] bg-[#F5F9FF]"
-                                  : "border-[#E0E0E0]"
-                              }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <input
-                                  type="radio"
-                                  name="payment-method"
-                                  value={value}
-                                  disabled={disabled}
-                                  checked={paymentMethod === value}
-                                  onChange={() => {
-                                    setPaymentMethod(value);
-                                    setError("");
-                                  }}
-                                  className={
-                                    disabled
-                                      ? "cursor-not-allowed"
-                                      : "cursor-pointer"
-                                  }
-                                />
-
-                                <span className="text-sm font-semibold text-[#212121]">
-                                  {label}
-                                </span>
-                              </div>
-                            </label>
-                          );
-                        })}
+                              <span className="text-sm font-semibold text-[#212121]">
+                                {label}
+                              </span>
+                            </div>
+                          </label>
+                        ))}
                       </div>
 
                       {paymentMethod === "cod" && (
@@ -1071,14 +1886,15 @@ function Checkout() {
                               </p>
 
                               <p className="mt-1 leading-5 text-[#555]">
-                                Pay the final order amount when your
-                                order is delivered.
+                                Pay the final order amount when your order
+                                is delivered.
                               </p>
 
                               <label className="mt-3 flex cursor-pointer items-start gap-2">
                                 <input
                                   type="checkbox"
                                   checked={confirmedCod}
+                                  disabled={locked}
                                   onChange={(event) =>
                                     setConfirmedCod(event.target.checked)
                                   }
@@ -1086,8 +1902,8 @@ function Checkout() {
                                 />
 
                                 <span className="text-sm text-[#444]">
-                                  I'll pay the order total when it
-                                  is delivered.
+                                  I'll pay the order total when it is
+                                  delivered.
                                 </span>
                               </label>
                             </div>
@@ -1121,7 +1937,8 @@ function Checkout() {
                           <button
                             type="button"
                             onClick={openCoupons}
-                            className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-bold text-[#2874F0] hover:text-[#1f65d6]"
+                            disabled={locked}
+                            className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-bold text-[#2874F0] hover:text-[#1f65d6] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <TicketPercent size={16} />
                             View all coupons
@@ -1147,55 +1964,60 @@ function Checkout() {
 
                             <p className="mt-1 text-sm text-[#555]">
                               You saved{" "}
-                              <strong>
-                                ₹
-                                {couponDiscount.toLocaleString(
-                                  "en-IN",
-                                )}
-                              </strong>
+                              <strong>{formatINR(couponDiscount)}</strong>
                             </p>
                           </div>
 
                           <button
                             type="button"
                             onClick={removeCoupon}
-                            className="cursor-pointer text-sm font-semibold text-[#2874F0]"
+                            disabled={locked}
+                            className="cursor-pointer text-sm font-semibold text-[#2874F0] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Remove
                           </button>
                         </div>
                       ) : (
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <input
-                            value={coupon}
-                            onChange={(event) => {
-                              setCoupon(
-                                event.target.value.toUpperCase(),
-                              );
-                              setError("");
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                applyCoupon();
-                              }
-                            }}
-                            placeholder="Enter coupon code"
-                            className="h-12 flex-1 rounded-md border border-[#D0D0D0] px-4 text-sm uppercase outline-none transition focus:border-[#2874F0] focus:ring-1 focus:ring-[#2874F0]"
-                          />
+                        <>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <input
+                              aria-label="Coupon code"
+                              value={coupon}
+                              disabled={locked}
+                              onChange={(event) => {
+                                setCoupon(event.target.value.toUpperCase());
+                                setCouponError("");
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  applyCoupon();
+                                }
+                              }}
+                              placeholder="Enter coupon code"
+                              className="h-12 flex-1 rounded-md border border-[#D0D0D0] px-4 text-sm uppercase outline-none transition focus:border-[#2874F0] focus:ring-1 focus:ring-[#2874F0] disabled:opacity-50"
+                            />
 
-                          <button
-                            type="button"
-                            onClick={() => applyCoupon()}
-                            disabled={
-                              couponLoading || !coupon.trim()
-                            }
-                            className="h-12 cursor-pointer rounded-md border border-[#2874F0] px-7 text-sm font-bold text-[#2874F0] transition hover:bg-[#F5F9FF] disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {couponLoading
-                              ? "Applying..."
-                              : "Apply"}
-                          </button>
-                        </div>
+                            <button
+                              type="button"
+                              onClick={() => applyCoupon()}
+                              disabled={
+                                locked || couponLoading || !coupon.trim()
+                              }
+                              className="h-12 cursor-pointer rounded-md border border-[#2874F0] px-7 text-sm font-bold text-[#2874F0] transition hover:bg-[#F5F9FF] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {couponLoading ? "Applying..." : "Apply"}
+                            </button>
+                          </div>
+
+                          {couponError && !couponsOpen && (
+                            <p
+                              role="alert"
+                              className="mt-2 text-sm text-[#C62828]"
+                            >
+                              {couponError}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   </section>
@@ -1203,7 +2025,7 @@ function Checkout() {
               )}
             </div>
 
-            {/* RIGHT — ORDER SUMMARY */}
+            {/* RIGHT: ORDER SUMMARY */}
             <aside className="h-fit overflow-hidden rounded-md border border-[#E0E0E0] bg-white">
               <div className="border-b border-[#E0E0E0] px-5 py-4">
                 <h2 className="text-lg font-bold text-[#212121]">
@@ -1242,9 +2064,7 @@ function Checkout() {
                 {/* PRICE BREAKDOWN */}
                 <div className="space-y-4 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-[#555]">
-                      Subtotal
-                    </span>
+                    <span className="text-[#555]">Subtotal</span>
 
                     <Price value={subtotal} />
                   </div>
@@ -1254,10 +2074,7 @@ function Checkout() {
                       <span>Coupon discount</span>
 
                       <span className="font-semibold">
-                        - ₹
-                        {couponDiscount.toLocaleString(
-                          "en-IN",
-                        )}
+                        - {formatINR(couponDiscount)}
                       </span>
                     </div>
                   )}
@@ -1279,37 +2096,60 @@ function Checkout() {
                 {/* TOTAL */}
                 <div className="flex items-center justify-between">
                   <span className="text-base font-bold text-[#212121]">
-                    Total
+                    Estimated total
                   </span>
 
                   <span className="text-xl font-bold text-[#212121]">
-                    ₹
-                    {estimatedTotal.toLocaleString("en-IN")}
+                    {formatINR(estimatedTotal)}
                   </span>
                 </div>
 
-                {appliedCoupon && (
-                  <div className="mt-3 rounded-md bg-[#F1F8F2] px-3 py-2 text-xs text-[#388E3C]">
-                    Coupon applied successfully. Final
-                    discounts and stock are verified again when
-                    the order is placed.
+                <p className="mt-2 text-xs text-[#878787]">
+                  The final amount, discounts and stock are verified when
+                  the order is placed.
+                </p>
+
+                {/* PAYMENT RECEIVED BUT NOT CONFIRMED */}
+                {step === 2 && paymentPending && (
+                  <div className="mt-5 rounded-md border border-[#FFE0A3] bg-[#FFF8E6] p-4">
+                    <p className="text-sm font-semibold text-[#7A5200]">
+                      Payment received for order {paymentPending}
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-[#7A5200]">
+                      We're still confirming it. Please don't pay again.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={checkPaymentStatus}
+                      disabled={confirming}
+                      className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-5 py-3 text-sm font-bold !text-white transition hover:bg-[#1f65d6] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {confirming ? "Checking..." : "Check payment status"}
+                    </button>
+
+                    <Link
+                      to="/orders"
+                      className="mt-2 block text-center text-sm font-semibold text-[#2874F0] hover:underline"
+                    >
+                      View my orders
+                    </Link>
                   </div>
                 )}
 
-                {/* STEP 2 BUTTON */}
-                {step === 2 && (
+                {/* PLACE ORDER */}
+                {step === 2 && !paymentPending && (
                   <button
                     type="button"
-                    disabled={
-                      busy ||
-                      !selected ||
-                      (paymentMethod === "cod" && !confirmedCod)
-                    }
+                    disabled={payDisabled}
                     onClick={placeOrder}
                     className="mt-5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-5 py-3.5 text-sm font-bold !text-white transition hover:bg-[#1f65d6] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {busy ? (
-                      "Placing order..."
+                      paymentMethod === "cod"
+                        ? "Placing order..."
+                        : "Processing..."
                     ) : (
                       <>
                         {paymentMethod === "cod"
@@ -1341,11 +2181,20 @@ function Checkout() {
             }
           }}
         >
-          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+          <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="coupon-dialog-title"
+            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+          >
             {/* MODAL HEADER */}
             <div className="flex items-center justify-between border-b border-[#E0E0E0] px-5 py-4">
               <div>
-                <h2 className="text-lg font-bold text-[#212121]">
+                <h2
+                  id="coupon-dialog-title"
+                  className="text-lg font-bold text-[#212121]"
+                >
                   Available Coupons
                 </h2>
 
@@ -1359,6 +2208,7 @@ function Checkout() {
                 onClick={closeCoupons}
                 disabled={couponLoading}
                 aria-label="Close coupons"
+                autoFocus
                 className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-[#555] transition hover:bg-[#F1F3F6] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <X size={20} />
@@ -1367,26 +2217,47 @@ function Checkout() {
 
             {/* MODAL CONTENT */}
             <div className="overflow-y-auto p-5">
+              {couponError && (
+                <div
+                  role="alert"
+                  className="mb-4 flex items-center justify-between gap-3 rounded-md border border-[#F2C7C2] bg-[#FFF1EF] px-4 py-3 text-sm text-[#C62828]"
+                >
+                  <span>{couponError}</span>
+
+                  {availableCoupons.length === 0 && !couponsLoading && (
+                    <button
+                      type="button"
+                      onClick={openCoupons}
+                      className="shrink-0 cursor-pointer font-semibold text-[#2874F0] hover:underline"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+
               {couponsLoading ? (
                 <div className="py-12">
                   <LoadingState />
                 </div>
               ) : availableCoupons.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[#D0D0D0] px-5 py-12 text-center">
-                  <TicketPercent
-                    size={38}
-                    className="mx-auto text-[#878787]"
-                  />
+                !couponError && (
+                  <div className="rounded-md border border-dashed border-[#D0D0D0] px-5 py-12 text-center">
+                    <TicketPercent
+                      size={38}
+                      className="mx-auto text-[#878787]"
+                    />
 
-                  <h3 className="mt-4 font-bold text-[#212121]">
-                    No coupons available
-                  </h3>
+                    <h3 className="mt-4 font-bold text-[#212121]">
+                      No coupons available
+                    </h3>
 
-                  <p className="mt-1 text-sm text-[#878787]">
-                    There are no active coupons available for
-                    this account right now.
-                  </p>
-                </div>
+                    <p className="mt-1 text-sm text-[#878787]">
+                      There are no active coupons available for this
+                      account right now.
+                    </p>
+                  </div>
+                )
               ) : (
                 <div className="space-y-3">
                   {availableCoupons.map((item) => (
@@ -1425,32 +2296,21 @@ function Checkout() {
                           <p className="mt-1 text-sm text-[#555]">
                             {item.discount_type === "percentage"
                               ? `${item.value}% off`
-                              : `₹${Number(
-                                  item.value,
-                                ).toLocaleString(
-                                  "en-IN",
-                                )} off`}
+                              : `${formatINR(item.value)} off`}
                           </p>
 
-                          {Number(
-                            item.minimum_order_amount || 0,
-                          ) > 0 && (
+                          {Number(item.minimum_order_amount || 0) > 0 && (
                             <p className="mt-1 text-xs text-[#878787]">
-                              Minimum order: ₹
-                              {Number(
-                                item.minimum_order_amount,
-                              ).toLocaleString("en-IN")}
+                              Minimum order:{" "}
+                              {formatINR(item.minimum_order_amount)}
                             </p>
                           )}
 
                           {item.maximum_discount &&
-                            item.discount_type ===
-                              "percentage" && (
+                            item.discount_type === "percentage" && (
                               <p className="mt-1 text-xs text-[#878787]">
-                                Maximum discount: ₹
-                                {Number(
-                                  item.maximum_discount,
-                                ).toLocaleString("en-IN")}
+                                Maximum discount:{" "}
+                                {formatINR(item.maximum_discount)}
                               </p>
                             )}
 
@@ -1469,12 +2329,8 @@ function Checkout() {
 
                         <button
                           type="button"
-                          disabled={
-                            !item.eligible || couponLoading
-                          }
-                          onClick={() =>
-                            handleCouponSelect(item)
-                          }
+                          disabled={!item.eligible || couponLoading}
+                          onClick={() => handleCouponSelect(item)}
                           className="shrink-0 cursor-pointer rounded-md bg-[#2874F0] px-5 py-2.5 text-sm font-bold !text-white transition hover:bg-[#1f65d6] disabled:cursor-not-allowed disabled:bg-[#E0E0E0] disabled:text-[#878787]"
                         >
                           {couponLoading
@@ -1506,6 +2362,11 @@ function Checkout() {
       )}
     </>
   );
+}
+function Checkout() {
+  const { user } = useAuth();
+
+  return <CheckoutContent key={user?.id ?? "guest"} />;
 }
 
 export default Checkout;

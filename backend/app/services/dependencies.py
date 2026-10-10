@@ -9,7 +9,7 @@ from app.models.user import User
 from app.services.security import JWT_ALGORITHM, JWT_SECRET_KEY
 
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=True)
 
 
 def get_current_user(
@@ -27,7 +27,13 @@ def get_current_user(
 
         user_id = payload.get("sub")
 
-        if user_id is None:
+        if not isinstance(user_id, str) or not user_id.isdigit():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token",
+            )
+
+        if int(user_id) <= 0:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication token",

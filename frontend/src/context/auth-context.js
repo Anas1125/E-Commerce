@@ -5,74 +5,95 @@ const sessionKeys = {
   admin: "admin_access_token",
 };
 
-export function getSessionToken(role) {
-  try {
-    const key = sessionKeys[role];
+function isValidRole(role) {
+  return role === "customer" || role === "admin";
+}
 
-    return (
-      window.localStorage.getItem(key) ||
-      window.sessionStorage.getItem(key)
-    );
+export function getSessionKey(role) {
+  return isValidRole(role) ? sessionKeys[role] : null;
+}
+
+function readStorage(type, key) {
+  try {
+    return window[type].getItem(key);
   } catch {
     return null;
   }
 }
 
+function removeFromStorage(type, key) {
+  try {
+    window[type].removeItem(key);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+export function getSessionToken(role) {
+  const key = getSessionKey(role);
+
+  if (!key) return null;
+
+  return (
+    readStorage("localStorage", key) ||
+    readStorage("sessionStorage", key) ||
+    null
+  );
+}
+
 export function setSessionToken(role, token, remember = false) {
-  const key = sessionKeys[role];
+  const key = getSessionKey(role);
+
+  if (!key || typeof token !== "string" || !token.trim()) return false;
+
+  // Remove any previous copy first.
+  removeFromStorage("localStorage", key);
+  removeFromStorage("sessionStorage", key);
+
+  if (remember) {
+    try {
+      window.localStorage.setItem(key, token);
+      return true;
+    } catch {
+      // Fall through and keep the session in sessionStorage instead.
+    }
+  }
 
   try {
-    // Remove any previous copy first.
-    window.localStorage.removeItem(key);
-    window.sessionStorage.removeItem(key);
-
-    if (remember) {
-      window.localStorage.setItem(key, token);
-    } else {
-      window.sessionStorage.setItem(key, token);
-    }
+    window.sessionStorage.setItem(key, token);
+    return true;
   } catch {
-    // If localStorage/sessionStorage access fails,
-    // keep the session in sessionStorage when possible.
-    try {
-      window.sessionStorage.setItem(key, token);
-    } catch {
-      // Ignore storage errors.
-    }
+    return false;
   }
 }
 
 export function removeSessionToken(role) {
-  const key = sessionKeys[role];
+  const key = getSessionKey(role);
 
-  try {
-    window.localStorage.removeItem(key);
-    window.sessionStorage.removeItem(key);
-  } catch {
-    // Ignore storage errors.
-  }
+  if (!key) return;
+
+  removeFromStorage("localStorage", key);
+  removeFromStorage("sessionStorage", key);
 }
 
 export function clearLegacySharedToken() {
-  try {
-    window.localStorage.removeItem("access_token");
-    window.sessionStorage.removeItem("access_token");
-  } catch {
-    // Ignore storage errors.
-  }
+  removeFromStorage("localStorage", "access_token");
+  removeFromStorage("sessionStorage", "access_token");
 }
 
 export function getActiveSessionRole(pathname = window.location.pathname) {
-  return pathname === "/admin" || pathname.startsWith("/admin/")
-    ? "admin"
-    : "customer";
+  const path = pathname.toLowerCase();
+
+  return path === "/admin" || path.startsWith("/admin/") ? "admin" : "customer";
 }
 
 const AuthContext = createContext({
   user: null,
   loading: true,
+  sessionError: false,
   login: () => {},
   logout: () => {},
+  updateUser: () => {},
   isAuthenticated: false,
   cartCount: 0,
   wishlistCount: 0,

@@ -8,14 +8,15 @@ from app.schemas.payment import (
     PaymentComplete,
     PaymentFail,
     PaymentResponse,
+    PaymentStatusCheck,
 )
 from app.services.dependencies import get_current_user
 from app.services.payment_service import (
     create_payment,
     complete_payment,
     fail_payment,
+    reconcile_payment_status,
 )
-
 
 router = APIRouter(
     prefix="/api/payments",
@@ -70,6 +71,18 @@ def fail_order_payment(
     db: Session = Depends(get_db),
 ):
     return fail_payment(
+        payment_id=payment_data.payment_id,
+        user=current_user,
+        db=db,
+    )
+
+@router.post("/status", response_model=PaymentResponse)
+def check_order_payment_status(
+    payment_data: PaymentStatusCheck,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return reconcile_payment_status(
         payment_id=payment_data.payment_id,
         user=current_user,
         db=db,

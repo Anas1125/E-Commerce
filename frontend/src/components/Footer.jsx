@@ -1,10 +1,5 @@
 import { Link } from "react-router-dom";
-import {
-  ArrowUp,
-  ArrowUpRight,
-  Mail,
-  Phone,
-} from "lucide-react";
+import { ArrowUp, ArrowUpRight, Mail, Phone } from "lucide-react";
 import BrandMark from "./BrandMark";
 
 const linkGroups = [
@@ -28,8 +23,31 @@ const linkGroups = [
   },
 ];
 
+const trustItems = [
+  { title: "Thoughtfully selected", text: "Products worth bringing home" },
+  { title: "Secure checkout", text: "Safe and simple shopping" },
+  { title: "Made for everyday", text: "Useful products, considered well" },
+];
+
+const email = "hello@terralens.com";
+
+// Fill this in when you have a real number; the phone link stays hidden until then.
+const phone = null;
+
+const headingClass =
+  "text-xs font-semibold uppercase tracking-[0.16em] text-[#1F2521]";
+
 const linkClass =
-  "group flex items-center gap-1.5 text-sm text-[#59645c] transition-all duration-200 hover:translate-x-1 hover:text-[#486B57] focus-visible:outline-none focus-visible:underline focus-visible:underline-offset-4";
+  "group flex items-center gap-1.5 text-sm text-[#59645C] transition-all duration-200 hover:translate-x-1 hover:text-[#486B57] focus-visible:outline-none focus-visible:underline focus-visible:underline-offset-4 motion-reduce:transition-none motion-reduce:hover:translate-x-0";
+
+const arrowClass =
+  "opacity-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0 motion-reduce:group-hover:translate-y-0";
+
+const contactClass =
+  "group flex items-center gap-2 text-sm text-[#59645C] transition-colors hover:text-[#486B57] focus-visible:outline-none focus-visible:underline focus-visible:underline-offset-4";
+
+const bottomLinkClass =
+  "transition-colors hover:text-[#486B57] focus-visible:outline-none focus-visible:underline focus-visible:underline-offset-4";
 
 function Footer() {
   const scrollToTop = () => {
@@ -40,6 +58,11 @@ function Footer() {
         behavior: "smooth",
         block: "start",
       });
+    } else {
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
     }
   };
 
@@ -47,7 +70,7 @@ function Footer() {
     <footer className="mt-20 border-t border-[#E3E5DF] bg-white">
       <div className="mx-auto max-w-7xl px-6 py-14 sm:py-16">
         {/* Main footer */}
-        <div className="grid gap-12 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+        <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
           {/* Brand */}
           <div>
             <BrandMark
@@ -55,7 +78,7 @@ function Footer() {
               imageClassName="h-10 max-w-44 object-contain"
             />
 
-            <p className="mt-4 max-w-sm text-sm leading-7 text-[#737A74]">
+            <p className="mt-4 max-w-sm text-sm leading-7 text-[#6A716B]">
               Thoughtfully selected products for everyday living. Simple,
               useful and made to fit beautifully into your everyday spaces.
             </p>
@@ -64,19 +87,17 @@ function Footer() {
           {/* Navigation */}
           {linkGroups.map((group) => (
             <nav key={group.title} aria-label={group.title}>
-              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#1F2521]">
-                {group.title}
-              </h3>
+              <h2 className={headingClass}>{group.title}</h2>
 
               <ul className="mt-5 space-y-3.5">
                 {group.links.map((link) => (
                   <li key={link.to}>
                     <Link to={link.to} className={linkClass}>
                       <span>{link.label}</span>
-
                       <ArrowUpRight
                         size={13}
-                        className="opacity-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100"
+                        aria-hidden="true"
+                        className={arrowClass}
                       />
                     </Link>
                   </li>
@@ -87,114 +108,64 @@ function Footer() {
 
           {/* Contact */}
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#1F2521]">
-              Contact us
-            </h3>
+            <h2 className={headingClass}>Contact us</h2>
 
             <div className="mt-5 space-y-4">
-              {/* Email */}
-              <a
-                href="mailto:hello@terralens.com"
-                className="group flex items-center gap-2 text-sm text-[#59645C] transition-colors hover:text-[#486B57]"
-              >
-                <Mail size={16} />
-
-                <span>hello@terralens.com</span>
-
+              <a href={`mailto:${email}`} className={contactClass}>
+                <Mail size={16} aria-hidden="true" />
+                <span>{email}</span>
                 <ArrowUpRight
                   size={13}
-                  className="transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                  aria-hidden="true"
+                  className={arrowClass}
                 />
               </a>
 
-              {/* Phone */}
-              <a
-                href="tel:+91XXXXXXXXXX"
-                className="group flex items-center gap-2 text-sm text-[#59645C] transition-colors hover:text-[#486B57]"
-              >
-                <Phone size={16} />
-
-                <span>+91 XXXXX XXXXX</span>
-              </a>
+              {phone && (
+                <a href={phone.href} className={contactClass}>
+                  <Phone size={16} aria-hidden="true" />
+                  <span>{phone.display}</span>
+                </a>
+              )}
             </div>
           </div>
         </div>
 
         {/* Trust strip */}
         <div className="mt-14 grid gap-4 border-y border-[#E3E5DF] py-7 sm:grid-cols-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#DCE7DE] text-sm font-semibold text-[#385744]">
-              ✓
-            </span>
+          {trustItems.map((item) => (
+            <div key={item.title} className="flex items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#DCE7DE] text-sm font-semibold text-[#385744]"
+              >
+                ✓
+              </span>
 
-            <div>
-              <p className="text-sm font-semibold text-[#1F2521]">
-                Thoughtfully selected
-              </p>
-
-              <p className="mt-0.5 text-xs text-[#737A74]">
-                Products worth bringing home
-              </p>
+              <div>
+                <p className="text-sm font-semibold text-[#1F2521]">
+                  {item.title}
+                </p>
+                <p className="mt-0.5 text-xs text-[#6A716B]">{item.text}</p>
+              </div>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#DCE7DE] text-sm font-semibold text-[#385744]">
-              ✓
-            </span>
-
-            <div>
-              <p className="text-sm font-semibold text-[#1F2521]">
-                Secure checkout
-              </p>
-
-              <p className="mt-0.5 text-xs text-[#737A74]">
-                Safe and simple shopping
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#DCE7DE] text-sm font-semibold text-[#385744]">
-              ✓
-            </span>
-
-            <div>
-              <p className="text-sm font-semibold text-[#1F2521]">
-                Made for everyday
-              </p>
-
-              <p className="mt-0.5 text-xs text-[#737A74]">
-                Useful products, considered well
-              </p>
-            </div>
-          </div>
+          ))}
         </div>
 
         {/* Bottom bar */}
-        <div className="mt-7 flex flex-col gap-4 text-xs text-[#737A74] sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            © {new Date().getFullYear()} TerraLens. All rights reserved.
-          </p>
+        <div className="mt-7 flex flex-col gap-4 text-xs text-[#6A716B] sm:flex-row sm:items-center sm:justify-between">
+          <p>© {new Date().getFullYear()} TerraLens. All rights reserved.</p>
 
           <div className="flex items-center gap-5">
-            <Link
-              to="/privacy"
-              className="transition-colors hover:text-[#486B57]"
-            >
+            <Link to="/privacy" className={bottomLinkClass}>
               Privacy
             </Link>
 
-            <Link
-              to="/terms"
-              className="transition-colors hover:text-[#486B57]"
-            >
+            <Link to="/terms" className={bottomLinkClass}>
               Terms
             </Link>
 
-            <span className="text-[#B0B5B0]">
-              Made with care.
-            </span>
+            <span>Made with care.</span>
           </div>
 
           {/* Back to top */}

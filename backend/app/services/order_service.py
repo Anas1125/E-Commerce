@@ -25,6 +25,7 @@ from app.services.notifications import (
     send_low_stock_notification,
     send_out_of_stock_notification,
 )
+from sqlalchemy.exc import IntegrityError
 
 
 def generate_order_number() -> str:
@@ -77,12 +78,68 @@ def calculate_discount(
     )
 
 
+def _get_existing_idempotent_order(
+    *,
+    user: User,
+    order_data: OrderCreate,
+    db: Session,
+) -> Order | None:
+    key = order_data.idempotency_key
+
+    if not key:
+        return None
+
+    existing_order = db.scalar(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(
+            Order.user_id == user.id,
+            Order.idempotency_key == key,
+        )
+    )
+
+    if existing_order is None:
+        return None
+
+    existing_coupon_code = db.scalar(
+        select(Coupon.code)
+        .join(CouponUsage, CouponUsage.coupon_id == Coupon.id)
+        .where(CouponUsage.order_id == existing_order.id)
+    )
+
+    requested_coupon = (order_data.coupon_code or "").strip().upper()
+    saved_coupon = (existing_coupon_code or "").strip().upper()
+
+    if (
+        existing_order.shipping_address_id != order_data.shipping_address_id
+        or existing_order.payment_method != order_data.payment_method
+        or saved_coupon != requested_coupon
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This idempotency key was already used with different "
+                "checkout details. Start a new checkout attempt."
+            ),
+        )
+
+    return existing_order
+
+
 def create_order(
     user: User,
     order_data: OrderCreate,
     db: Session,
 ) -> Order:
+    existing_order = _get_existing_idempotent_order(
+        user=user,
+        order_data=order_data,
+        db=db,
+    )
 
+    if existing_order is not None:
+        return existing_order
+    
     try:
         address = db.scalar(
             select(Address).where(
@@ -168,9 +225,7 @@ def create_order(
                 item_discount * cart_item.quantity
             )
 
-            final_price = (
-                unit_price - item_discount
-            )
+            final_price = line_subtotal - line_discount
 
             subtotal += line_subtotal
             total_discount += line_discount
@@ -294,6 +349,7 @@ def create_order(
             shipping_state=address.state,
             shipping_postal_code=address.postal_code,
             shipping_country=address.country,
+            idempotency_key=order_data.idempotency_key,
 
             subtotal=subtotal,
             discount_amount=total_discount,
@@ -476,7 +532,7 @@ def create_order(
                     </td>
 
                     <td style="padding: 10px 0; border-bottom: 1px solid #E3E5DF; text-align: right;">
-                        ₹{item["final_price"] * item["quantity"]:,.2f}
+                        ₹{item["final_price"]:,.2f}
                     </td>
                 </tr>
             """
@@ -666,9 +722,26 @@ def create_order(
 
         return order
 
+        
+    except IntegrityError:
+        db.rollback()
+
+        # Another simultaneous request may have created the same order.
+        existing_order = _get_existing_idempotent_order(
+            user=user,
+            order_data=order_data,
+            db=db,
+        )
+
+        if existing_order is not None:
+            return existing_order
+
+        raise
+
     except Exception:
         db.rollback()
         raise
+
 
 
 def cancel_order(

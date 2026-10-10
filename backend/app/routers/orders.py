@@ -1,28 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from app.schemas.order_status import OrderStatusUpdate
-from app.services.dependencies import require_admin
-from fastapi import HTTPException, status
-from sqlalchemy import select
-from app.models.order_status_history import OrderStatusHistory
 
 from app.database import get_db
 from app.models.order import Order
+from app.models.order_status_history import OrderStatusHistory
 from app.models.user import User
 from app.schemas.order import OrderCreate, OrderResponse
 from app.services.dependencies import get_current_user
 from app.services.order_service import (
-    create_order,
     cancel_order,
-    update_order_status,
-) 
+    create_order,
+)
 
 
 router = APIRouter(
     prefix="/api/orders",
     tags=["Orders"],
 )
+
+
+class OrderStatusHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: str
+    note: str | None = None
+    changed_at: datetime
 
 
 @router.post(
@@ -47,68 +54,50 @@ def place_order(
     response_model=list[OrderResponse],
 )
 def get_my_orders(
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    orders = db.scalars(
+    return db.scalars(
         select(Order)
-        .options(
-            selectinload(Order.items)
-        )
+        .options(selectinload(Order.items))
         .where(Order.user_id == current_user.id)
-        .order_by(Order.created_at.desc())
+        # Order.id breaks ties so ordering and paging are stable
+        .order_by(Order.created_at.desc(), Order.id.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
 
-    return orders
-
-@router.patch(
-    "/admin/{order_id}/status",
-    response_model=OrderResponse,
-)
-def change_order_status(
-    order_id: int,
-    status_data: OrderStatusUpdate,
-    current_user: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    return update_order_status(
-        order_id=order_id,
-        new_status=status_data.status,
-        note=status_data.note,
-        admin=current_user,
-        db=db,
-    )
 
 @router.get(
     "/{order_id}/history",
+    response_model=list[OrderStatusHistoryResponse],
 )
 def get_order_status_history(
     order_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    order = db.scalar(
-        select(Order).where(
+    owns_order = db.scalar(
+        select(Order.id).where(
             Order.id == order_id,
             Order.user_id == current_user.id,
         )
     )
 
-    if order is None:
+    if owns_order is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
         )
 
-    history = db.scalars(
+    return db.scalars(
         select(OrderStatusHistory)
-        .where(
-            OrderStatusHistory.order_id == order_id
-        )
+        .where(OrderStatusHistory.order_id == order_id)
         .order_by(OrderStatusHistory.changed_at.asc())
     ).all()
 
-    return history
 
 @router.get(
     "/{order_id}",
@@ -121,9 +110,7 @@ def get_my_order(
 ):
     order = db.scalar(
         select(Order)
-        .options(
-            selectinload(Order.items)
-        )
+        .options(selectinload(Order.items))
         .where(
             Order.id == order_id,
             Order.user_id == current_user.id,
@@ -137,6 +124,7 @@ def get_my_order(
         )
 
     return order
+
 
 @router.post(
     "/{order_id}/cancel",
@@ -152,4 +140,3 @@ def cancel_my_order(
         user=current_user,
         db=db,
     )
-

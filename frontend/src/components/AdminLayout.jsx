@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Activity,
@@ -24,6 +24,8 @@ import BrandMark from "./BrandMark";
 import SEO from "./SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
 
+const DEFAULT_SITE_NAME = "TerraLens";
+
 const nav = [
   [LayoutDashboard, "Overview", "/admin"],
   [ShieldCheck, "Admin Management", "/admin/admins"],
@@ -42,19 +44,43 @@ const nav = [
 
 function AdminLayout() {
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const { user, logout } = useAuth();
 
-  const { siteName = "TerraLens" } = useContext(
-    SiteBrandingContext,
-  );
+  const branding = useContext(SiteBrandingContext) ?? {};
+  const siteName = branding.siteName || DEFAULT_SITE_NAME;
 
   const navigate = useNavigate();
 
-  const signOut = () => {
-    logout();
-    navigate("/admin/login", { replace: true });
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const signOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await logout();
+    } finally {
+      navigate("/admin/login", { replace: true });
+    }
   };
+
+  const userName = `${user?.first_name || ""} ${user?.last_name || ""}`.trim();
 
   return (
     <div className="min-h-screen bg-[#F5F5F1] lg:grid lg:grid-cols-[250px_1fr]">
@@ -65,10 +91,9 @@ function AdminLayout() {
       />
 
       <aside
+        aria-label="Admin sidebar"
         className={`${
-          open
-            ? "fixed inset-y-0 left-0 z-[70] flex w-[280px]"
-            : "hidden"
+          open ? "fixed inset-y-0 left-0 z-[70] flex w-[280px]" : "hidden"
         } h-screen flex-col border-r border-[#E3E5DF] bg-white p-5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-auto lg:self-start`}
       >
         {/* BRAND */}
@@ -76,21 +101,20 @@ function AdminLayout() {
           <BrandMark />
 
           <button
+            type="button"
             aria-label="Close admin menu"
-            className="rounded p-2 lg:hidden"
+            className="cursor-pointer rounded p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57] lg:hidden"
             onClick={() => setOpen(false)}
           >
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
         {/* NAVIGATION */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <p className="eyebrow mt-10">
-            Store management
-          </p>
+          <p className="eyebrow mt-10">Store management</p>
 
-          <nav className="mt-4 space-y-1">
+          <nav aria-label="Admin" className="mt-4 space-y-1">
             {nav.map(([Icon, label, to]) => (
               <NavLink
                 key={to}
@@ -102,10 +126,10 @@ function AdminLayout() {
                     isActive
                       ? "bg-[#DCE7DE] font-semibold text-[#385744]"
                       : "text-[#5c655e] hover:bg-[#F5F5F1]"
-                  }`
+                  } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]`
                 }
               >
-                <Icon size={17} />
+                <Icon size={17} aria-hidden="true" />
                 {label}
               </NavLink>
             ))}
@@ -114,28 +138,26 @@ function AdminLayout() {
 
         {/* USER SECTION */}
         <div className="mt-4 shrink-0 border-t border-[#E3E5DF] pt-4">
-          <p className="text-sm font-medium">
-            {user?.first_name}{" "}
-            {user?.last_name || ""}
-          </p>
+          <p className="text-sm font-medium">{userName}</p>
 
-          <p className="mt-1 truncate text-xs text-[#737A74]">
-            {user?.email}
-          </p>
+          <p className="mt-1 truncate text-xs text-[#737A74]">{user?.email}</p>
 
           <button
+            type="button"
             onClick={signOut}
-            className="mt-3 text-sm font-medium text-[#486B57] cursor-pointer"
+            disabled={signingOut}
+            className="mt-3 cursor-pointer text-sm font-medium text-[#486B57] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]"
           >
-            Sign out
+            {signingOut ? "Signing out…" : "Sign out"}
           </button>
         </div>
       </aside>
 
       {open && (
         <button
+          type="button"
           aria-label="Close menu overlay"
-          className="fixed inset-0 z-[65] bg-black/30 lg:hidden"
+          className="fixed inset-0 z-[65] cursor-default bg-black/30 lg:hidden"
           onClick={() => setOpen(false)}
         />
       )}
@@ -144,11 +166,13 @@ function AdminLayout() {
         <header className="sticky top-0 z-40 flex h-[68px] items-center justify-between border-b border-[#E3E5DF] bg-[#F5F5F1]/95 px-5 backdrop-blur sm:px-8">
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={() => setOpen(true)}
               aria-label="Open admin menu"
-              className="rounded-lg p-2 hover:bg-[#DCE7DE] lg:hidden"
+              aria-expanded={open}
+              className="cursor-pointer rounded-lg p-2 hover:bg-[#DCE7DE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57] lg:hidden"
             >
-              <Menu size={19} />
+              <Menu size={19} aria-hidden="true" />
             </button>
 
             <span className="hidden text-xs uppercase tracking-[.16em] text-[#737A74] sm:block">
@@ -157,7 +181,7 @@ function AdminLayout() {
           </div>
 
           <span className="inline-flex items-center gap-2 text-xs font-medium text-[#486B57]">
-            <Activity size={15} />
+            <Activity size={15} aria-hidden="true" />
             Store operations
           </span>
         </header>

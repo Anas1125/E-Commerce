@@ -6,5 +6,6 @@ export const SiteBrandingContext = createContext({
   footerLogoUrl: null,
   faviconUrl: null,
   siteName: "TerraLens",
+  loading: false,
   refreshBranding: async () => {},
 });
