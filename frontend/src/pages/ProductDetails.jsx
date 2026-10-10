@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import api from "../services/api";
+import { getActiveDiscounts, getProductPriceDetails } from "../services/pricing";
 import ProductCard from "../components/ProductCard";
 import useAuth from "../context/useAuth";
 import SEO from "../components/SEO";
@@ -127,8 +128,18 @@ function ProductDetailsContent({ id }) {
   const [adding, setAdding] = useState(false);
   const [wishlistBusy, setWishlistBusy] = useState(false);
   const [message, setMessage] = useState(null); // { text, type }
+  const [activeDiscounts, setActiveDiscounts] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getActiveDiscounts()
+      .then((discounts) => { if (!cancelled) setActiveDiscounts(discounts); })
+      .catch(() => { if (!cancelled) setActiveDiscounts([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const productId = product?.id;
+  const priceDetails = getProductPriceDetails(product, activeDiscounts);
   const saved = isAuthenticated && savedRaw;
 
   useEffect(() => {
@@ -592,7 +603,7 @@ function ProductDetailsContent({ id }) {
           offers: {
             "@type": "Offer",
             priceCurrency: "INR",
-            price: Number(product.price || 0).toFixed(2),
+            price: priceDetails.discountedPrice.toFixed(2),
             availability: outOfStock
               ? "https://schema.org/OutOfStock"
               : "https://schema.org/InStock",
@@ -712,10 +723,18 @@ function ProductDetailsContent({ id }) {
 
             {/* PRICE */}
             <div className="mt-5 border-b border-[#E0E0E0] pb-5">
-              <Price
-                value={product.price}
-                className="text-3xl font-bold text-[#212121]"
-              />
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <Price
+                  value={priceDetails.discountedPrice}
+                  className="text-3xl font-bold text-[#212121]"
+                />
+                {priceDetails.discountAmount > 0 && (
+                  <>
+                    <Price value={priceDetails.originalPrice} className="text-base text-[#878787] line-through" />
+                    <span className="rounded bg-[#E8F5E9] px-2 py-1 text-xs font-bold text-[#2E7D32]">{priceDetails.label}</span>
+                  </>
+                )}
+              </div>
 
               <p className="mt-1 text-xs text-[#878787]">
                 Inclusive of applicable taxes

@@ -248,6 +248,7 @@ function AdminRefunds() {
             headers={[
               "Refund",
               "Order",
+              "Customer",
               "Amount",
               "Reason",
               "Status",
@@ -259,6 +260,14 @@ function AdminRefunds() {
               <tr key={r.id}>
                 <td className="px-5 py-4 font-medium">#{r.id}</td>
                 <td className="px-5 py-4">#{r.order_id}</td>
+                <td className="px-5 py-4">
+                <div className="font-medium">
+                  {r.customer_name || "Customer"}
+                </div>
+                <div className="mt-1 text-xs text-[#737A74]">
+                  {r.customer_email || "—"}
+                </div>
+              </td>
                 <td className="px-5 py-4">{formatMoney(r.amount)}</td>
                 <td className="max-w-xs truncate px-5 py-4">
                   {r.reason || "—"}
@@ -352,6 +361,34 @@ function AdminRefunds() {
               <div>
                 <dt className="text-[#737A74]">Reason</dt>
                 <dd className="mt-1">{detail.reason || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-[#737A74]">Selected items</dt>
+
+                <dd className="mt-2">
+                  {detail.refund_items?.length ? (
+                    <ul className="space-y-2">
+                      {detail.refund_items.map((item) => (
+                        <li
+                          key={item.id}
+                          className="flex justify-between gap-4"
+                        >
+                          <span>
+                            {item.product_name} × {item.quantity}
+                          </span>
+
+                          <span className="shrink-0 font-medium">
+                            {formatMoney(item.amount)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="text-[#737A74]">
+                      No item-level details recorded for this request.
+                    </span>
+                  )}
+                </dd>
               </div>
               {detail.gateway_refund_id && (
                 <div>

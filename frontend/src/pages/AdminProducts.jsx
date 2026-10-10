@@ -762,10 +762,7 @@ function AdminProducts() {
                 type="button"
                 disabled={busy || imageBusy}
                 className="cursor-pointer text-sm text-[#486B57] disabled:opacity-50"
-                onClick={(event) => {
-                  triggerRef.current = event.currentTarget;
-                  show(null);
-                }}
+                onClick={closeModal}
               >
                 Close
               </button>

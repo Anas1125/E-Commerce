@@ -303,6 +303,8 @@ function Orders() {
   const [refundSubmitting, setRefundSubmitting] = useState(false);
   const [refundError, setRefundError] = useState("");
   const [refundSuccess, setRefundSuccess] = useState("");
+  const [refundMode, setRefundMode] = useState("full");
+  const [refundItemSelections, setRefundItemSelections] = useState({});
 
   // Cancel
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -536,12 +538,24 @@ function Orders() {
     setRefundFeedback("");
     setRefundError("");
     setRefundSuccess("");
+    setRefundMode("full");
+    setRefundItemSelections({});
   };
 
   const openRefundModal = (order) => {
     clearTimeout(closeTimerRef.current);
     resetRefund();
+
     setRefundOrder(order);
+    setRefundMode("full");
+    setRefundItemSelections(
+      Object.fromEntries(
+        (order.items || []).map((item) => [
+          String(item.id),
+          { selected: false, quantity: 1 },
+        ]),
+      ),
+    );
   };
 
   const closeRefundModal = () => {
@@ -563,6 +577,37 @@ function Orders() {
       setRefundError("Please tell us what went wrong.");
       return;
     }
+
+    const selectedItems = (refundOrder.items || [])
+  .filter((item) => refundItemSelections[item.id]?.selected)
+  .map((item) => ({
+    order_item_id: Number(item.id),
+    quantity: Number(refundItemSelections[item.id]?.quantity),
+  }));
+
+if (refundMode === "items" && selectedItems.length === 0) {
+  setRefundError("Select at least one item to refund.");
+  return;
+}
+
+if (
+  refundMode === "items" &&
+    selectedItems.some((selection) => {
+      const item = refundOrder.items.find(
+        (orderItem) => orderItem.id === selection.order_item_id,
+      );
+
+      return (
+        !Number.isInteger(selection.quantity) ||
+        selection.quantity < 1 ||
+        !item ||
+        selection.quantity > item.quantity
+      );
+    })
+  ) {
+    setRefundError("Choose a valid quantity for each selected item.");
+    return;
+  }
 
     const reason = [
       `Reason: ${refundReason}`,
@@ -589,7 +634,8 @@ function Orders() {
     try {
       const response = await api.post("/refunds/", {
         order_id: refundOrder.id,
-        amount: refundOrder.total_amount,
+        full_order: refundMode === "full",
+        items: refundMode === "full" ? [] : selectedItems,
         reason,
       });
 
@@ -621,9 +667,14 @@ function Orders() {
 
   const refundDirty =
     !refundSuccess &&
-    (refundReason !== "" ||
+    (
+      Object.values(refundItemSelections).some(
+        (selection) => selection?.selected,
+      ) ||
+      refundReason !== "" ||
       refundProblem.trim() !== "" ||
-      refundFeedback.trim() !== "");
+      refundFeedback.trim() !== ""
+  );
 
   const seo = (
     <SEO
@@ -1322,7 +1373,6 @@ function Orders() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#878787]">
                     Order
                   </p>
-
                   <p className="mt-1 break-all text-sm font-bold text-[#212121]">
                     {refundOrder.order_number}
                   </p>
@@ -1330,16 +1380,144 @@ function Orders() {
 
                 <div className="text-right">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#878787]">
-                    Refund amount
+                    {refundMode === "full" ? "Full order amount" : "Refund amount"}
                   </p>
 
-                  <Price
-                    value={refundOrder.total_amount}
-                    className="mt-1 text-sm font-bold text-[#212121]"
-                  />
+                  {refundMode === "full" ? (
+                    <Price
+                      value={refundOrder.total_amount}
+                      className="mt-1 text-sm font-bold text-[#212121]"
+                    />
+                  ) : (
+                    <p className="mt-1 text-sm font-semibold text-[#486B57]">
+                      Calculated from selected items
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
+
+            {/* REFUND SCOPE */}
+            <fieldset className="rounded-lg border border-[#E0E0E0] p-4">
+              <legend className="px-1 text-sm font-semibold text-[#212121]">
+                What would you like to refund?
+              </legend>
+
+              <div className="space-y-3">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="radio"
+                    name="refund-mode"
+                    checked={refundMode === "full"}
+                    onChange={() => setRefundMode("full")}
+                    disabled={refundSubmitting}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-[#212121]">
+                      Full order
+                    </span>
+                    <span className="text-xs text-[#737A74]">
+                      Request a refund for all items and applicable shipping.
+                    </span>
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="radio"
+                    name="refund-mode"
+                    checked={refundMode === "items"}
+                    onChange={() => setRefundMode("items")}
+                    disabled={refundSubmitting}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-[#212121]">
+                      Selected items
+                    </span>
+                    <span className="text-xs text-[#737A74]">
+                      Choose specific products and quantities.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              {refundMode === "items" && (
+                <div className="mt-4 space-y-3 border-t border-[#E0E0E0] pt-4">
+                  {(refundOrder.items || []).map((item) => {
+                    const selection = refundItemSelections[item.id] || {
+                      selected: false,
+                      quantity: 1,
+                    };
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex flex-col gap-3 rounded-lg border border-[#E0E0E0] p-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selection.selected}
+                            disabled={refundSubmitting}
+                            onChange={(event) =>
+                              setRefundItemSelections((current) => ({
+                                ...current,
+                                [item.id]: {
+                                  ...(current[item.id] || { quantity: 1 }),
+                                  selected: event.target.checked,
+                                },
+                              }))
+                            }
+                            className="mt-1"
+                          />
+
+                          <span className="min-w-0">
+                            <span className="block break-words text-sm font-semibold text-[#212121]">
+                              {item.product_name}
+                            </span>
+                            <span className="text-xs text-[#737A74]">
+                              Purchased quantity: {item.quantity}
+                            </span>
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2 text-xs text-[#737A74]">
+                          Refund quantity
+                          <input
+                            type="number"
+                            min="1"
+                            max={item.quantity}
+                            step="1"
+                            value={selection.quantity}
+                            disabled={!selection.selected || refundSubmitting}
+                            onChange={(event) =>
+                              setRefundItemSelections((current) => ({
+                                ...current,
+                                [item.id]: {
+                                  ...(current[item.id] || { selected: false }),
+                                  quantity:
+                                    event.target.value === ""
+                                      ? ""
+                                      : Number(event.target.value),
+                                },
+                              }))
+                            }
+                            className="w-20 rounded-md border border-[#D0D0D0] px-2 py-2 text-sm text-[#212121] disabled:bg-[#F5F5F5]"
+                          />
+                        </label>
+                      </div>
+                    );
+                  })}
+
+                  <p className="text-xs leading-5 text-[#737A74]">
+                    Selected-item refunds exclude shipping. The final eligible amount
+                    will account for applicable discounts and be reviewed by our team.
+                  </p>
+                </div>
+              )}
+            </fieldset>
 
             {/* REASON */}
             <div>

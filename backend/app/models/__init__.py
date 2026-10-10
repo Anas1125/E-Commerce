@@ -19,6 +19,7 @@ from app.models.refund import Refund
 from app.models.order_status_history import OrderStatusHistory
 from app.models.site_settings import SiteSettings
 from app.models.password_reset_token import PasswordResetToken
+from app.models.refund_item import RefundItem
 
 
 
@@ -44,4 +45,5 @@ __all__ = [
     "OrderStatusHistory",
     "SiteSettings",
     "PasswordResetToken",
+    "RefundItem",
 ]

@@ -3,6 +3,7 @@ import { Heart, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import api from "../services/api";
+import { getActiveDiscounts, getProductPriceDetails } from "../services/pricing";
 import useAuth from "../context/useAuth";
 import { SiteBrandingContext } from "../context/site-branding-context";
 import { Price } from "./Storefront";
@@ -53,6 +54,22 @@ function ProductCard({ product, imageUrl }) {
 
   const [notice, setNotice] =
     useState("");
+
+  const [priceDetails, setPriceDetails] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getActiveDiscounts()
+      .then((discounts) => {
+        if (!cancelled) {
+          setPriceDetails(getProductPriceDetails(product, discounts));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPriceDetails(null);
+      });
+    return () => { cancelled = true; };
+  }, [product.id, product.price]);
 
   // Never show a saved state while logged out.
   const saved =
@@ -248,11 +265,18 @@ function ProductCard({ product, imageUrl }) {
             </div>
           )}
 
-          <div className="mt-3 flex items-center justify-between">
-            <Price
-              value={product.price}
-              className="font-semibold"
-            />
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              {priceDetails?.discountAmount > 0 ? (
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <Price value={priceDetails.discountedPrice} className="font-semibold text-[#2874F0]" />
+                  <Price value={priceDetails.originalPrice} className="text-xs text-[#878787] line-through" />
+                  <span className="text-xs font-bold text-[#388E3C]">{priceDetails.label}</span>
+                </div>
+              ) : (
+                <Price value={product.price} className="font-semibold" />
+              )}
+            </div>
 
             {stock !== null && (
               <span

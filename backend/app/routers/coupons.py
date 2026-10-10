@@ -5,6 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from app.services.pricing import (
+    calculate_discount_amount,
+    get_active_discounts,
+)
 
 from app.database import get_db
 from app.models.cart import Cart
@@ -219,7 +223,8 @@ def validate_coupon(
     if reason is not None:
         raise _bad_request(reason)
 
-    subtotal = _cart_subtotal(_load_cart(db, current_user.id), strict=True)
+    cart = _load_cart(db, current_user.id)
+    subtotal = _cart_subtotal(cart, strict=True)
 
     if subtotal < coupon.minimum_order_amount:
         raise _bad_request(
@@ -227,9 +232,39 @@ def validate_coupon(
             f"₹{coupon.minimum_order_amount}"
         )
 
-    discount_amount = _calculate_discount(coupon, subtotal)
+    active_discounts = get_active_discounts(db)
+    offer_discount = Decimal("0.00")
 
-    total_after_coupon = (subtotal - discount_amount).quantize(
+    for cart_item in cart.items:
+        product = cart_item.product
+
+        if product is None or not product.is_active:
+            continue
+
+        unit_discount = calculate_discount_amount(
+            product,
+            product.price,
+            active_discounts,
+        )
+        offer_discount += unit_discount * cart_item.quantity
+
+    remaining_subtotal = max(
+        Decimal("0.00"),
+        subtotal - offer_discount,
+    )
+
+    discount_amount = min(
+        _calculate_discount(coupon, remaining_subtotal),
+        remaining_subtotal,
+    ).quantize(
+        CENT,
+        rounding=ROUND_HALF_UP,
+    )
+
+    total_after_coupon = max(
+        Decimal("0.00"),
+        remaining_subtotal - discount_amount,
+    ).quantize(
         CENT,
         rounding=ROUND_HALF_UP,
     )

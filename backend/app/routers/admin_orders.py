@@ -1,4 +1,5 @@
 import os
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -92,27 +93,82 @@ def get_all_orders(
         filters.append(Order.payment_status == payment_status)
 
     if search and search.strip():
-        term = f"%{_escape_like(search.strip())}%"
+        search_value = search.strip()
 
-        full_name = User.first_name + " " + func.coalesce(User.last_name, "")
-
-        filters.append(
-            or_(
-                Order.order_number.ilike(term, escape=LIKE_ESCAPE),
-                Order.user.has(
-                    or_(
-                        User.first_name.ilike(term, escape=LIKE_ESCAPE),
-                        User.last_name.ilike(term, escape=LIKE_ESCAPE),
-                        full_name.ilike(term, escape=LIKE_ESCAPE),
-                        User.email.ilike(term, escape=LIKE_ESCAPE),
-                        User.phone_number.ilike(term, escape=LIKE_ESCAPE),
-                    )
-                ),
-                Order.items.any(
-                    OrderItem.product_name.ilike(term, escape=LIKE_ESCAPE)
-                ),
-            )
+        # A numeric search targets one exact internal order ID.
+        id_match = re.fullmatch(
+            r"(?:#|id:\s*)?(\d+)",
+            search_value,
+            flags=re.IGNORECASE,
         )
+
+        # Use phone: to search specifically by phone number.
+        phone_match = re.fullmatch(
+            r"phone:\s*(.+)",
+            search_value,
+            flags=re.IGNORECASE,
+        )
+
+        if id_match:
+            filters.append(Order.id == int(id_match.group(1)))
+
+        elif phone_match:
+            phone_term = f"%{_escape_like(phone_match.group(1).strip())}%"
+            filters.append(
+                Order.user.has(
+                    User.phone_number.ilike(
+                        phone_term,
+                        escape=LIKE_ESCAPE,
+                    )
+                )
+            )
+
+        else:
+            term = f"%{_escape_like(search_value)}%"
+            full_name = (
+                User.first_name
+                + " "
+                + func.coalesce(User.last_name, "")
+            )
+
+            filters.append(
+                or_(
+                    Order.order_number.ilike(
+                        term,
+                        escape=LIKE_ESCAPE,
+                    ),
+                    Order.user.has(
+                        or_(
+                            User.first_name.ilike(
+                                term,
+                                escape=LIKE_ESCAPE,
+                            ),
+                            User.last_name.ilike(
+                                term,
+                                escape=LIKE_ESCAPE,
+                            ),
+                            full_name.ilike(
+                                term,
+                                escape=LIKE_ESCAPE,
+                            ),
+                            User.email.ilike(
+                                term,
+                                escape=LIKE_ESCAPE,
+                            ),
+                            User.phone_number.ilike(
+                                term,
+                                escape=LIKE_ESCAPE,
+                            ),
+                        )
+                    ),
+                    Order.items.any(
+                        OrderItem.product_name.ilike(
+                            term,
+                            escape=LIKE_ESCAPE,
+                        )
+                    ),
+                )
+            )
 
     total = (
         db.scalar(select(func.count()).select_from(Order).where(*filters))

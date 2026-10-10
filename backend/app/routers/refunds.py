@@ -45,7 +45,8 @@ def create_refund_request(
 ):
     return request_refund(
         order_id=refund_data.order_id,
-        amount=refund_data.amount,
+        full_order=refund_data.full_order,
+        items=refund_data.items,
         reason=refund_data.reason,
         user=current_user,
         db=db,

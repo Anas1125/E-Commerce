@@ -22,6 +22,7 @@ from app.database import Base
 if TYPE_CHECKING:
     from app.models.order import Order
     from app.models.payment import Payment
+    from app.models.refund_item import RefundItem
 
 
 def utcnow() -> datetime:
@@ -79,6 +80,13 @@ class Refund(Base):
         ForeignKey("payments.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
+    )
+
+
+    refund_items: Mapped[list["RefundItem"]] = relationship(
+        back_populates="refund",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
