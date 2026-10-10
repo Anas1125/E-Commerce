@@ -123,6 +123,7 @@ function ProductDetailsContent({ id }) {
   const [notFound, setNotFound] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewsReloadKey, setReviewsReloadKey] = useState(0);
 
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
@@ -310,7 +311,28 @@ function ProductDetailsContent({ id }) {
     return () => {
       cancelled = true;
     };
-  }, [productId, reviewsPage]);
+  }, [productId, reviewsPage, reviewsReloadKey]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        setReviewsLoading(true);
+        setReviewsReloadKey((key) => key + 1);
+      }
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange,
+    );
+
+    return () => {
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
+      );
+    };
+  }, []);
 
   useEffect(() => {
     if (!product) {
