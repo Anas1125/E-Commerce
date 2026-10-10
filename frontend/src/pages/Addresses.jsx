@@ -963,27 +963,6 @@ function Addresses() {
             </>
           )}
 
-          {/* INFO */}
-          <div className="mt-5 border border-[#E0E0E0] bg-white px-5 py-4">
-            <div className="flex items-start gap-3">
-              <MapPin
-                size={18}
-                className="mt-0.5 shrink-0 text-[#2874F0]"
-                aria-hidden="true"
-              />
-
-              <div>
-                <p className="text-sm font-bold text-[#212121]">
-                  Address & order history
-                </p>
-
-                <p className="mt-1 text-xs leading-5 text-[#878787]">
-                  Deleting an address never changes your past orders; each
-                  order keeps its own copy of the delivery details.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

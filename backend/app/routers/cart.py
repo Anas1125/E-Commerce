@@ -18,6 +18,7 @@ from app.schemas.cart import (
     CartResponse,
 )
 from app.services.dependencies import get_current_user
+from app.services.pricing import calculate_discount_amount, get_active_discounts
 
 
 router = APIRouter(
@@ -52,9 +53,11 @@ def get_or_create_cart(
     return cart
 
 
-def build_cart_response(cart: Cart) -> CartResponse:
+def build_cart_response(cart: Cart, db: Session) -> CartResponse:
     items = []
     subtotal = Decimal("0.00")
+    discount_total = Decimal("0.00")
+    active_discounts = get_active_discounts(db)
 
     for item in sorted(cart.items, key=lambda cart_item: cart_item.id):
         product = item.product
@@ -62,7 +65,14 @@ def build_cart_response(cart: Cart) -> CartResponse:
             continue
 
         line_total = product.price * item.quantity
+        unit_discount = calculate_discount_amount(
+            product, product.price, active_discounts
+        )
+        line_discount = unit_discount * item.quantity
+        discounted_line_total = max(Decimal("0.00"), line_total - line_discount)
+
         subtotal += line_total
+        discount_total += line_discount
 
         items.append(
             CartItemResponse(
@@ -72,6 +82,8 @@ def build_cart_response(cart: Cart) -> CartResponse:
                 product_name=product.name,
                 unit_price=product.price,
                 line_total=line_total,
+                discount_amount=line_discount,
+                discounted_line_total=discounted_line_total,
             )
         )
 
@@ -80,6 +92,8 @@ def build_cart_response(cart: Cart) -> CartResponse:
         user_id=cart.user_id,
         items=items,
         subtotal=subtotal,
+        discount_total=discount_total,
+        discounted_subtotal=max(Decimal("0.00"), subtotal - discount_total),
     )
 
 
@@ -97,7 +111,7 @@ def _load_cart_response(db: Session, cart_id: int) -> CartResponse:
             detail="Cart not found",
         )
 
-    return build_cart_response(cart)
+    return build_cart_response(cart, db)
 
 
 

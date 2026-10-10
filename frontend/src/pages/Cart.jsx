@@ -552,10 +552,16 @@ function Cart() {
                           </div>
 
                           {/* PRICE */}
-                          <Price
-                            value={item.line_total}
-                            className="shrink-0 text-base font-bold text-[#212121] sm:text-lg"
-                          />
+                          <div className="shrink-0 text-right">
+                            {Number(item.discount_amount || 0) > 0 ? (
+                              <>
+                                <Price value={item.discounted_line_total} className="block text-base font-bold text-[#388E3C] sm:text-lg" />
+                                <Price value={item.line_total} className="block text-xs text-[#878787] line-through" />
+                              </>
+                            ) : (
+                              <Price value={item.line_total} className="text-base font-bold text-[#212121] sm:text-lg" />
+                            )}
+                          </div>
                         </div>
 
                         {/* STOCK / DELIVERY */}
@@ -688,7 +694,7 @@ function Cart() {
                 </span>
 
                 <span className="font-semibold text-[#388E3C]">
-                  ₹0
+                  - <Price value={cart.discount_total} />
                 </span>
               </div>
 
@@ -711,7 +717,7 @@ function Cart() {
                   </span>
 
                   <Price
-                    value={cart.subtotal}
+                    value={cart.discounted_subtotal}
                     className="text-xl font-bold text-[#212121]"
                   />
                 </div>

@@ -21,6 +21,8 @@ class CartItemResponse(BaseModel):
     product_name: str
     unit_price: Decimal
     line_total: Decimal
+    discount_amount: Decimal
+    discounted_line_total: Decimal
 
 
 class CartResponse(BaseModel):
@@ -28,3 +30,5 @@ class CartResponse(BaseModel):
     user_id: int
     items: list[CartItemResponse]
     subtotal: Decimal
+    discount_total: Decimal
+    discounted_subtotal: Decimal

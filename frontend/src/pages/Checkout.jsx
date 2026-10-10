@@ -528,13 +528,14 @@ function CheckoutContent() {
 
   const subtotal = Number(cart?.subtotal || 0);
 
+  const dealDiscountTotal = Number(cart?.discount_total || 0);
   const couponDiscount = Number(
     appliedCoupon?.discount_amount || 0,
   );
 
   const estimatedTotal = Math.max(
     0,
-    subtotal - couponDiscount,
+    subtotal - dealDiscountTotal - couponDiscount,
   );
   const locked = busy || confirming || Boolean(paymentPending);
 
@@ -2051,10 +2052,17 @@ function CheckoutContent() {
                         </p>
                       </div>
 
-                      <Price
-                        value={item.line_total}
-                        className="shrink-0 text-sm font-semibold"
-                      />
+                      {Number(item.discount_amount || 0) > 0 ? (
+                        <div className="shrink-0 text-right">
+                          <Price value={item.discounted_line_total} className="block text-sm font-semibold text-[#388E3C]" />
+                          <Price value={item.line_total} className="block text-xs text-[#878787] line-through" />
+                        </div>
+                      ) : (
+                        <Price
+                          value={item.line_total}
+                          className="shrink-0 text-sm font-semibold"
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2068,6 +2076,13 @@ function CheckoutContent() {
 
                     <Price value={subtotal} />
                   </div>
+
+                  {dealDiscountTotal > 0 && (
+                    <div className="flex justify-between text-[#388E3C]">
+                      <span>Offer discount</span>
+                      <span className="font-semibold">- {formatINR(dealDiscountTotal)}</span>
+                    </div>
+                  )}
 
                   {appliedCoupon && (
                     <div className="flex justify-between text-[#388E3C]">

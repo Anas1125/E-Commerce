@@ -271,7 +271,7 @@ function AdminOrders() {
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search order number, customer, email, phone or item..."
+              placeholder="Search Order ID, order number, customer, email or item; use phone: for phone"
               aria-label="Search orders"
               className="h-12 w-full rounded-xl border border-[#D9DDD8] bg-white pl-12 pr-12 text-sm text-[#212121] outline-none transition placeholder:text-[#8A8F8A] focus:border-[#486B57] focus:ring-4 focus:ring-[#486B57]/10"
             />
@@ -345,7 +345,8 @@ function AdminOrders() {
         ) : orders.length ? (
           <AdminTable
             headers={[
-              "Order",
+              "Order ID",
+              "Order number",
               "Customer",
               "Date",
               "Total",
@@ -356,7 +357,13 @@ function AdminOrders() {
           >
             {orders.map((order) => (
               <tr key={order.id}>
-                <td className="px-5 py-4 font-medium">{order.order_number}</td>
+                <td className="px-5 py-4 font-semibold">
+                  #{order.id}
+                </td>
+
+                <td className="px-5 py-4 font-medium">
+                  {order.order_number}
+                </td>
 
                 <td className="px-5 py-4">
                   {personName(order.user)}

@@ -13,6 +13,10 @@ from app.models.refund import Refund
 from app.models.user import User
 from app.services.notifications import send_admin_notification
 from app.services.payment_service import get_razorpay_client
+from sqlalchemy.orm import Session, selectinload
+
+from app.models.refund_item import RefundItem
+from app.schemas.refund import RefundItemSelection
 
 logger = logging.getLogger(__name__)
 
@@ -88,28 +92,19 @@ def _notify_refund_requested(
         )
 
 
+
 def request_refund(
     order_id: int,
-    amount: Decimal,
+    full_order: bool,
+    items: list[RefundItemSelection],
     reason: str | None,
     user: User,
     db: Session,
 ) -> Refund:
     try:
-        if amount is None or amount <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Refund amount must be greater than zero",
-            )
-
-        if amount != amount.quantize(_CENT):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Refund amount can have at most two decimal places",
-            )
-
         order = db.scalar(
             select(Order)
+            .options(selectinload(Order.items))
             .where(
                 Order.id == order_id,
                 Order.user_id == user.id,
@@ -124,16 +119,16 @@ def request_refund(
                 detail="Order not found",
             )
 
-        if order.payment_status not in _REFUNDABLE_STATUSES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only paid orders can be refunded",
-            )
-
         if order.order_status != "delivered":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only delivered orders can be refunded",
+            )
+
+        if order.payment_status not in _REFUNDABLE_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only paid orders can be refunded",
             )
 
         payment = db.scalar(
@@ -159,36 +154,218 @@ def request_refund(
             )
         ).all()
 
-        refunded_amount = sum(
-            (refund.amount for refund in existing_refunds),
+        if existing_refunds:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A refund request already exists for this order",
+            )
+
+        order_items = list(order.items)
+
+        if not order_items:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This order has no refundable items",
+            )
+
+        items_by_id = {item.id: item for item in order_items}
+
+        if full_order:
+            selected = [
+                (item, item.quantity)
+                for item in order_items
+            ]
+        else:
+            if not items:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Select at least one item to refund",
+                )
+
+            selected = []
+
+            for selection in items:
+                order_item = items_by_id.get(selection.order_item_id)
+
+                if order_item is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="A selected item does not belong to this order",
+                    )
+
+                if selection.quantity > order_item.quantity:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Requested quantity exceeds the purchased "
+                            f"quantity for {order_item.product_name}"
+                        ),
+                    )
+
+                selected.append((order_item, selection.quantity))
+
+        # OrderItem.final_price includes product offers but excludes
+        # the order-level coupon. Allocate the coupon proportionally
+        # across the order's items before calculating partial refunds.
+        offer_discount_total = sum(
+            (item.discount_amount for item in order_items),
             Decimal("0.00"),
         )
 
-        if refunded_amount + amount > payment.amount:
+        coupon_discount = max(
+            Decimal("0.00"),
+            order.discount_amount - offer_discount_total,
+        )
+
+        line_bases = {
+            item.id: max(Decimal("0.00"), item.final_price)
+            for item in order_items
+        }
+
+        base_total = sum(line_bases.values(), Decimal("0.00"))
+        coupon_discount = min(coupon_discount, base_total)
+        remaining_coupon = coupon_discount
+        line_net = dict(line_bases)
+
+        weighted_items = [
+            item for item in order_items
+            if line_bases[item.id] > 0
+        ]
+
+        for index, item in enumerate(weighted_items):
+            base = line_bases[item.id]
+
+            if index == len(weighted_items) - 1:
+                allocated_coupon = min(base, remaining_coupon)
+            else:
+                allocated_coupon = (
+                    coupon_discount * base / base_total
+                ).quantize(
+                    _CENT,
+                    rounding=ROUND_HALF_UP,
+                )
+                allocated_coupon = min(
+                    base,
+                    remaining_coupon,
+                    allocated_coupon,
+                )
+
+            line_net[item.id] = base - allocated_coupon
+            remaining_coupon -= allocated_coupon
+
+        item_amounts: dict[int, Decimal] = {}
+
+        if full_order:
+            # A full-order refund includes the order's shipping fee.
+            refund_amount = order.total_amount
+            net_total = sum(line_net.values(), Decimal("0.00"))
+            weighted_items = [
+                item for item in order_items
+                if line_net[item.id] > 0
+            ]
+
+            remaining_amount = refund_amount
+
+            for index, item in enumerate(weighted_items):
+                if index == len(weighted_items) - 1:
+                    share = remaining_amount
+                elif net_total > 0:
+                    share = (
+                        refund_amount
+                        * line_net[item.id]
+                        / net_total
+                    ).quantize(
+                        _CENT,
+                        rounding=ROUND_HALF_UP,
+                    )
+                    share = min(share, remaining_amount)
+                else:
+                    share = Decimal("0.00")
+
+                item_amounts[item.id] = share
+                remaining_amount -= share
+        else:
+            # Selected-item refunds exclude shipping. For partial
+            # quantities, refund a proportional share of the line.
+            for order_item, quantity in selected:
+                amount = (
+                    line_net[order_item.id]
+                    * quantity
+                    / order_item.quantity
+                ).quantize(
+                    _CENT,
+                    rounding=ROUND_HALF_UP,
+                )
+
+                item_amounts[order_item.id] = amount
+
+            refund_amount = sum(
+                item_amounts.values(),
+                Decimal("0.00"),
+            )
+
+        if refund_amount <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Refund amount exceeds available refundable amount",
+                detail="The selected items have no refundable amount",
+            )
+
+        if refund_amount > payment.amount:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refund amount exceeds the payment amount",
             )
 
         refund = Refund(
             order_id=order.id,
             payment_id=payment.id,
-            amount=amount,
+            amount=refund_amount.quantize(
+                _CENT,
+                rounding=ROUND_HALF_UP,
+            ),
             reason=reason,
             status="requested",
         )
 
+        db.add(refund)
+        db.flush()
+
+        for order_item, quantity in selected:
+            amount = item_amounts.get(
+                order_item.id,
+                Decimal("0.00"),
+            )
+
+            if amount <= 0:
+                continue
+
+            db.add(
+                RefundItem(
+                    refund_id=refund.id,
+                    order_item_id=order_item.id,
+                    product_name=order_item.product_name,
+                    quantity=quantity,
+                    amount=amount,
+                )
+            )
+
         order_number = order.order_number
         payment_method = order.payment_method
         customer_name = (
-            " ".join(part for part in [user.first_name, user.last_name] if part)
-            .strip()
+            " ".join(
+                part
+                for part in [user.first_name, user.last_name]
+                if part
+            ).strip()
             or "Customer"
         )
         email = user.email or ""
-        phone = str(user.phone_number) if user.phone_number else "Not provided"
+        phone = (
+            str(user.phone_number)
+            if user.phone_number
+            else "Not provided"
+        )
 
-        db.add(refund)
         db.commit()
         db.refresh(refund)
 
@@ -211,7 +388,7 @@ def request_refund(
         customer_name=customer_name,
         email=email,
         phone=phone,
-        amount=amount,
+        amount=refund_amount,
         reason=reason,
     )
 

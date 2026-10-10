@@ -369,11 +369,13 @@ def update_product_inventory(
             if inventory_data.quantity < inventory.reserved_quantity:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Quantity cannot be less than reserved quantity",
+                    detail=(
+                        "Total stock cannot be lower than the reserved "
+                        f"quantity ({inventory.reserved_quantity})."
+                    ),
                 )
 
             inventory.quantity = inventory_data.quantity
-            inventory.reserved_quantity = inventory_data.reserved_quantity
 
         if inventory.reserved_quantity > inventory.quantity:
             raise HTTPException(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from sqlalchemy import text
@@ -57,6 +57,8 @@ PAYMENT_METHODS = (
 def _in_list(values: tuple[str, ...]) -> str:
     return ", ".join(f"'{value}'" for value in values)
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 class Order(Base):
     __tablename__ = "orders"
@@ -170,14 +172,16 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
+        default=utcnow,
         server_default=func.now(),
     )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
+        default=utcnow,
         onupdate=func.now(),
+        server_default=func.now(),
     )
 
     user: Mapped["User"] = relationship(back_populates="orders")

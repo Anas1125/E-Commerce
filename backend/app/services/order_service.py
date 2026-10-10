@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.address import Address
 from app.models.cart import Cart
 from app.models.cart_item import CartItem
-from app.models.discount import Discount
 from app.models.inventory import Inventory
 from app.models.order import Order
 from app.models.order_item import OrderItem
@@ -20,6 +19,7 @@ from app.models.user import User
 from app.schemas.order import OrderCreate
 from app.models.coupon import Coupon
 from app.models.coupon_usage import CouponUsage
+from app.services.pricing import calculate_discount
 from app.services.notifications import (
     send_admin_notification,
     send_low_stock_notification,
@@ -33,49 +33,6 @@ def generate_order_number() -> str:
     random_part = secrets.token_hex(3).upper()
 
     return f"TL-{timestamp}-{random_part}"
-
-
-def calculate_discount(
-    product: Product,
-    price: Decimal,
-    db: Session,
-) -> Decimal:
-    now = datetime.utcnow()
-
-    discounts = db.scalars(
-        select(Discount).where(
-            Discount.is_active == True,
-            Discount.start_date <= now,
-            Discount.end_date >= now,
-            (
-                (Discount.product_id == product.id)
-                | (Discount.product_id.is_(None))
-            ),
-        )
-    ).all()
-
-    if not discounts:
-        return Decimal("0.00")
-
-    highest_discount = Decimal("0.00")
-
-    for discount in discounts:
-        if discount.discount_type == "percentage":
-            amount = (
-                price * discount.value / Decimal("100")
-            )
-        else:
-            amount = discount.value
-
-        amount = min(amount, price)
-
-        if amount > highest_discount:
-            highest_discount = amount
-
-    return highest_discount.quantize(
-        Decimal("0.01"),
-        rounding=ROUND_HALF_UP,
-    )
 
 
 def _get_existing_idempotent_order(
@@ -261,7 +218,7 @@ def create_order(
                     detail="Invalid or inactive coupon",
                 )
 
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
 
             if now < coupon.start_date or now > coupon.end_date:
                 raise HTTPException(
@@ -303,9 +260,16 @@ def create_order(
                     ),
                 )
 
+            remaining_subtotal = max(
+                Decimal("0.00"),
+                subtotal - total_discount,
+            )
+
             if coupon.discount_type == "percentage":
                 coupon_discount = (
-                    subtotal * coupon.value / Decimal("100")
+                    remaining_subtotal
+                    * coupon.value
+                    / Decimal("100")
                 )
 
                 if coupon.maximum_discount is not None:
@@ -313,16 +277,13 @@ def create_order(
                         coupon_discount,
                         coupon.maximum_discount,
                     )
-
             else:
                 coupon_discount = coupon.value
 
             coupon_discount = min(
                 coupon_discount,
-                subtotal,
-            )
-
-            coupon_discount = coupon_discount.quantize(
+                remaining_subtotal,
+            ).quantize(
                 Decimal("0.01"),
                 rounding=ROUND_HALF_UP,
             )

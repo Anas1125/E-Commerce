@@ -5,9 +5,13 @@ const DEFAULT_API_BASE_URL = "http://localhost:8000";
 const REQUEST_TIMEOUT_MS = 15000;
 
 // Trailing slashes are stripped so we never build URLs like https://api.example.com//api
-export const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
-).replace(/\/+$/, "");
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).trim();
+const secureProductionApiBaseUrl =
+  import.meta.env.PROD && import.meta.env.VITE_API_BASE_URL
+    ? configuredApiBaseUrl.replace(/^http:\/\//i, "https://")
+    : configuredApiBaseUrl;
+
+export const API_BASE_URL = secureProductionApiBaseUrl.replace(/\/+$/, "");
 
 if (import.meta.env.PROD && !import.meta.env.VITE_API_BASE_URL) {
   console.error(
@@ -20,6 +24,9 @@ export const resolveMediaUrl = (url) => {
   if (!url) return "";
 
   if (/^(https?:|blob:|data:)/i.test(url) || url.startsWith("//")) {
+    if (import.meta.env.PROD && /^http:\/\//i.test(url)) {
+      return url.replace(/^http:\/\//i, "https://");
+    }
     return url;
   }
 
@@ -35,9 +42,6 @@ export const setUnauthorizedHandler = (handler) => {
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
   timeout: REQUEST_TIMEOUT_MS,
-  headers: {
-    "Content-Type": "application/json",
-  },
 });
 
 api.interceptors.request.use((config) => {
