@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     func,
     text,
+    Text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,7 +50,6 @@ class Payment(Base):
         ),
         CheckConstraint("amount > 0", name="ck_payments_amount_positive"),
         CheckConstraint("length(currency) = 3", name="ck_payments_currency_len"),
-        # Speeds up reconciliation jobs ("all pending payments older than X").
         Index("ix_payments_status_created_at", "status", "created_at"),
     )
 
@@ -65,7 +65,7 @@ class Payment(Base):
         String(50),
         nullable=False,
         default="razorpay",
-        server_default=text("razorpay"),
+        server_default=text("'razorpay'"),
     )
 
     gateway_order_id: Mapped[str | None] = mapped_column(
@@ -94,7 +94,7 @@ class Payment(Base):
         String(3),
         nullable=False,
         default="INR",
-        server_default=text("INR"),
+        server_default=text("'INR'"),
     )
 
     status: Mapped[str] = mapped_column(
@@ -105,7 +105,7 @@ class Payment(Base):
     )
 
     failure_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    failure_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     paid_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
