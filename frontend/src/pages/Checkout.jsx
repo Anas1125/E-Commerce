@@ -1620,9 +1620,9 @@ function CheckoutContent() {
             </div>
           )}
 
-          <div className="grid gap-5 lg:grid-cols-[1fr_390px]">
+          <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_390px]">
             {/* LEFT */}
-            <div className="space-y-5">
+            <div className="min-w-0 space-y-5">
               {step === 1 ? (
                 <>
                   {/* DELIVERY ADDRESS */}
@@ -1738,7 +1738,7 @@ function CheckoutContent() {
                   </section>
 
                   {/* CONTACT INFORMATION */}
-                  <section className="rounded-md border border-[#E0E0E0] bg-white">
+                  <section className="min-w-0 rounded-md border border-[#E0E0E0] bg-white">
                     <div className="border-b border-[#E0E0E0] px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E8F0FE] text-[#2874F0]">
@@ -1757,9 +1757,9 @@ function CheckoutContent() {
                       </div>
                     </div>
 
-                    <div className="grid gap-3 p-5 sm:grid-cols-2">
+                    <div className="grid min-w-0 gap-3 p-5 sm:grid-cols-2">
                       {/* PHONE */}
-                      <div className="rounded-md border border-[#E0E0E0] bg-[#FAFAFA] p-4">
+                      <div className="min-w-0 rounded-md border border-[#E0E0E0] bg-[#FAFAFA] p-4">
                         {editingContact === "phone" ? (
                           <div>
                             <div className="flex items-center gap-3">
@@ -1857,7 +1857,7 @@ function CheckoutContent() {
                       </div>
 
                       {/* EMAIL */}
-                      <div className="rounded-md border border-[#E0E0E0] bg-[#FAFAFA] p-4">
+                      <div className="min-w-0 rounded-md border border-[#E0E0E0] bg-[#FAFAFA] p-4">
                         {editingContact === "email" ? (
                           <div>
                             <div className="flex items-center gap-3">
@@ -1929,7 +1929,7 @@ function CheckoutContent() {
                                   Email address
                                 </p>
 
-                                <p className="mt-1 break-words text-sm font-semibold text-[#212121]">
+                                <p className="mt-1 break-words [overflow-wrap:anywhere] text-sm font-semibold text-[#212121]">
                                   {user?.email || "Email not available"}
                                 </p>
                               </div>
@@ -2244,7 +2244,7 @@ function CheckoutContent() {
             </div>
 
             {/* RIGHT: ORDER SUMMARY */}
-            <aside className="h-fit overflow-hidden rounded-md border border-[#E0E0E0] bg-white">
+            <aside className="h-fit min-w-0 overflow-hidden rounded-md border border-[#E0E0E0] bg-white">
               <div className="border-b border-[#E0E0E0] px-5 py-4">
                 <h2 className="text-lg font-bold text-[#212121]">
                   Order Summary
