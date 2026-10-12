@@ -203,3 +203,51 @@ def send_out_of_stock_notification(
             reserved_quantity=reserved_quantity,
         ),
     )
+
+
+def send_customer_notification(
+    email: str,
+    subject: str,
+    html: str,
+    text: str | None = None,
+) -> dict | None:
+    """Send a customer email without interrupting the business operation."""
+    recipient = (email or "").strip()
+
+    if not recipient:
+        logger.warning("Customer notification skipped: email is missing.")
+        return None
+
+    api_key = os.getenv("RESEND_API_KEY")
+
+    if not api_key:
+        logger.warning(
+            "RESEND_API_KEY is not configured; customer notification skipped."
+        )
+        return None
+
+    from_email = os.getenv("RESEND_FROM_EMAIL") or SANDBOX_FROM_EMAIL
+    resend.api_key = api_key
+
+    params: resend.Emails.SendParams = {
+        "from": from_email,
+        "to": [recipient],
+        "subject": _single_line(subject),
+        "html": html,
+    }
+
+    if text:
+        params["text"] = text
+
+    try:
+        result = resend.Emails.send(params)
+    except Exception:
+        logger.exception(
+            "Failed to send customer notification to %s", recipient
+        )
+        return None
+
+    logger.info(
+        "Customer notification sent (id=%s)", result.get("id")
+    )
+    return result

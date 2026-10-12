@@ -7,6 +7,13 @@ from app.models.order import Order
 from app.models.refund import Refund
 from app.models.user import User
 from app.schemas.refund import RefundCreate, RefundResponse
+from app.schemas.admin_refund import RefundRejectRequest
+from app.services.refund_service import (
+    approve_refund,
+    complete_refund,
+    reject_refund,
+    request_refund,
+)
 from app.services.dependencies import (
     get_current_user,
     require_admin,
@@ -91,6 +98,25 @@ def approve_refund_request(
         db=db,
     )
 
+
+@router.post(
+    "/{refund_id}/reject",
+    response_model=RefundResponse,
+    summary="Decline a refund request (admin)",
+    responses=_errors,
+)
+def reject_refund_request(
+    refund_id: int,
+    refund_data: RefundRejectRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return reject_refund(
+        refund_id=refund_id,
+        reason=refund_data.reason,
+        admin=current_user,
+        db=db,
+    )
 
 @router.post(
     "/{refund_id}/complete",

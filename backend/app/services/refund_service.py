@@ -5,13 +5,15 @@ from html import escape
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.models.order import Order
 from app.models.payment import Payment
 from app.models.refund import Refund
 from app.models.user import User
-from app.services.notifications import send_admin_notification
+from app.services.notifications import (
+    send_admin_notification,
+    send_customer_notification,
+)
 from app.services.payment_service import get_razorpay_client
 from sqlalchemy.orm import Session, selectinload
 
@@ -92,6 +94,89 @@ def _notify_refund_requested(
         )
 
 
+def _notify_customer_refund_status(
+    *,
+    email: str,
+    customer_name: str,
+    order_number: str,
+    amount: Decimal,
+    status: str,
+    decision_note: str | None = None,
+) -> None:
+    """Send a customer refund update after its database transaction commits."""
+    messages = {
+        "approved": (
+            f"Refund approved — order {order_number}",
+            "Your refund request has been approved.",
+            "Your request is approved. This does not mean the money "
+            "has been returned yet. We'll notify you when the refund "
+            "has been verified as processed.",
+        ),
+        "rejected": (
+            f"Refund request update — order {order_number}",
+            "Your refund request was declined.",
+            "The reason provided by our team is included below.",
+        ),
+        "completed": (
+            f"Refund processed — order {order_number}",
+            "Your refund has been processed.",
+            "The refund provider confirmed that the refund was processed.",
+        ),
+    }
+
+    message = messages.get(status)
+    if message is None:
+        logger.warning("Unknown customer refund notification status: %s", status)
+        return
+
+    subject, heading, description = message
+    safe_name = escape(customer_name or "Customer")
+    safe_order = escape(order_number)
+    safe_amount = escape(f"₹{amount:,.2f}")
+    safe_description = escape(description)
+    safe_reason = escape((decision_note or "").strip())
+
+    reason_html = (
+        f'<p style="white-space:pre-line"><strong>Reason:</strong> '
+        f"{safe_reason}</p>"
+        if status == "rejected" and safe_reason
+        else ""
+    )
+
+    text = (
+        f"Hello {customer_name or 'Customer'},\n\n"
+        f"{heading}\n"
+        f"Order: {order_number}\n"
+        f"Refund amount: ₹{amount:,.2f}\n\n"
+        f"{description}\n"
+        + (
+            f"\nReason: {decision_note.strip()}\n"
+            if status == "rejected" and decision_note and decision_note.strip()
+            else ""
+        )
+    )
+
+    send_customer_notification(
+        email=email,
+        subject=subject,
+        html=f"""
+        <div style="font-family:Arial,sans-serif;max-width:600px;
+                    margin:0 auto;padding:28px;color:#1F2521">
+          <h2 style="color:#486B57">{heading}</h2>
+          <p>Hello {safe_name},</p>
+          <p>{safe_description}</p>
+          <div style="padding:18px;background:#F8F9F6;border-radius:10px">
+            <p><strong>Order:</strong> {safe_order}</p>
+            <p><strong>Refund amount:</strong> {safe_amount}</p>
+          </div>
+          {reason_html}
+          <p style="margin-top:24px;color:#737A74;font-size:13px">
+            This is an automated TerraLens refund update.
+          </p>
+        </div>
+        """,
+        text=text,
+    )
 
 def request_refund(
     order_id: int,
@@ -395,6 +480,7 @@ def request_refund(
     return refund
 
 
+
 def approve_refund(
     refund_id: int,
     admin: User,
@@ -403,6 +489,9 @@ def approve_refund(
     try:
         refund = db.scalar(
             select(Refund)
+            .options(
+                selectinload(Refund.order).selectinload(Order.user)
+            )
             .where(Refund.id == refund_id)
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -420,7 +509,24 @@ def approve_refund(
                 detail="Only requested refunds can be approved",
             )
 
+        order = refund.order
+        customer = order.user
+
+        email = customer.email or ""
+        customer_name = (
+            " ".join(
+                part
+                for part in (customer.first_name, customer.last_name)
+                if part
+            ).strip()
+            or "Customer"
+        )
+        order_number = order.order_number
+        refund_amount = refund.amount
+
         refund.status = "approved"
+        refund.reviewed_by_id = admin.id
+        refund.reviewed_at = datetime.now(timezone.utc)
 
         db.commit()
         db.refresh(refund)
@@ -439,6 +545,115 @@ def approve_refund(
         ) from exc
 
     logger.info("Refund %s approved by admin %s", refund_id, admin.id)
+
+
+    try:
+        _notify_customer_refund_status(
+            email=email,
+            customer_name=customer_name,
+            order_number=order_number,
+            amount=refund_amount,
+            status="approved",
+        )
+    except Exception:
+        logger.exception(
+            "Refund %s was approved, but customer notification failed",
+            refund_id,
+        )
+
+
+    return refund
+
+
+def reject_refund(
+    refund_id: int,
+    reason: str | None,
+    admin: User,
+    db: Session,
+) -> Refund:
+    try:
+        refund = db.scalar(
+            select(Refund)
+            .options(
+                selectinload(Refund.order).selectinload(Order.user)
+            )
+            .where(Refund.id == refund_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+        if refund is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Refund not found",
+            )
+
+        if refund.status != "requested":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only requested refunds can be rejected",
+            )
+
+        order = refund.order
+        customer = order.user
+
+        email = customer.email or ""
+        customer_name = (
+            " ".join(
+                part
+                for part in (customer.first_name, customer.last_name)
+                if part
+            ).strip()
+            or "Customer"
+        )
+        order_number = order.order_number
+        refund_amount = refund.amount
+        decision_note = (reason or "").strip() or None
+
+        refund.status = "rejected"
+        refund.decision_note = decision_note
+        refund.reviewed_by_id = admin.id
+        refund.reviewed_at = datetime.now(timezone.utc)
+
+        db.commit()
+        db.refresh(refund)
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Unexpected error while rejecting refund")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to reject refund",
+        ) from exc
+
+    logger.info("Refund %s rejected by admin %s", refund_id, admin.id)
+
+    try:
+        _notify_customer_refund_status(
+            email=email,
+            customer_name=customer_name,
+            order_number=order_number,
+            amount=refund_amount,
+            status="rejected",
+            decision_note=decision_note,
+        )
+    except Exception:
+        logger.exception(
+            "Refund %s was rejected, but customer notification failed",
+            refund_id,
+        )
+
+    except Exception:
+        logger.exception(
+            "Refund %s was approved, but customer notification failed",
+            refund_id,
+        )
+
 
     return refund
 
@@ -551,6 +766,20 @@ def complete_refund(
                 detail="Order not found",
             )
 
+        customer = order.user
+
+        customer_email = customer.email or ""
+        customer_name = (
+            " ".join(
+                part
+                for part in (customer.first_name, customer.last_name)
+                if part
+            ).strip()
+            or "Customer"
+        )
+        order_number = order.order_number
+        refund_amount = refund.amount
+
         duplicate = db.scalar(
             select(Refund.id).where(
                 Refund.gateway_refund_id == gateway_refund_id,
@@ -607,6 +836,20 @@ def complete_refund(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to complete refund",
         ) from exc
+
+    try:
+        _notify_customer_refund_status(
+            email=customer_email,
+            customer_name=customer_name,
+            order_number=order_number,
+            amount=refund_amount,
+            status="completed",
+        )
+    except Exception:
+        logger.exception(
+            "Refund %s was completed, but customer notification failed",
+            refund_id,
+        )
 
     logger.info(
         "Refund %s completed by admin %s (gateway refund %s)",

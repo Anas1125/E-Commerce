@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Eye } from "lucide-react";
+import { Check, Eye, XCircle } from "lucide-react";
 import useAdminNotice from "../hooks/useAdminNotice";
 import api from "../services/api";
 import {
@@ -32,6 +32,22 @@ function formatDate(value) {
   const date = new Date(value);
   if (!value || Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("en-IN");
+}
+
+function formatPaymentMethod(value) {
+  const method = String(value || "").trim().toLowerCase();
+
+  const labels = {
+    cod: "Cash on Delivery",
+    upi: "UPI",
+    card: "Card",
+    netbanking: "Net Banking",
+    wallet: "Wallet",
+    online: "Online payment",
+    razorpay: "Razorpay (method not recorded)",
+  };
+
+  return labels[method] || value || "Not recorded";
 }
 
 function formatMoney(value) {
@@ -172,6 +188,45 @@ function AdminRefunds() {
     }
   };
 
+  const reject = async (refund) => {
+    if (pendingId !== null) return;
+
+    const response = window.prompt(
+      `Optional reason for declining refund request #${refund.id}:`,
+    );
+
+    if (response === null) return;
+
+    const reason = response.trim();
+
+    if (
+      !window.confirm(
+        `Decline refund request #${refund.id}? The customer will be notified.`,
+      )
+    ) {
+      return;
+    }
+
+    setPendingId(refund.id);
+
+    try {
+      await api.post(`/refunds/${refund.id}/reject`, {
+        reason: reason || null,
+      });
+
+      notify("Refund request declined.");
+      reload();
+    } catch (error) {
+      notify(
+        apiErrorMessage(error, "Unable to decline refund."),
+        "error",
+      );
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+
   const complete = async (event) => {
     event.preventDefault();
     if (busy || !detail) return;
@@ -299,6 +354,17 @@ function AdminRefunds() {
                       <Check size={16} aria-hidden="true" />
                     </button>
                   )}
+                  {r.status === "requested" && (
+                    <button
+                      type="button"
+                      disabled={pendingId === r.id}
+                      className="ml-1 cursor-pointer rounded-lg p-2 text-[#8b4033] hover:bg-red-50 disabled:opacity-50"
+                      aria-label={`Decline refund ${r.id}`}
+                      onClick={() => reject(r)}
+                    >
+                      <XCircle size={16} aria-hidden="true" />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -308,8 +374,8 @@ function AdminRefunds() {
         )}
       </AdminPanel>
       <p className="mt-4 text-xs text-[#737A74]">
-        There is no reject endpoint. Completing a refund requires a genuine
-        gateway refund reference; do not enter a placeholder.
+        Declining a refund notifies the customer. Completing a refund requires a
+        genuine gateway refund reference; do not enter a placeholder.
       </p>
       {detail && (
         <div
@@ -352,6 +418,18 @@ function AdminRefunds() {
                 <dt className="text-[#737A74]">Payment</dt>
                 <dd>{detail.payment_id != null ? `#${detail.payment_id}` : "—"}</dd>
               </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-[#737A74]">Payment method</dt>
+                <dd className="text-right">
+                  {formatPaymentMethod(detail.payment_method)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[#737A74]">Gateway payment ID</dt>
+                <dd className="mt-1 break-all font-mono text-xs">
+                  {detail.gateway_payment_id || "Not available"}
+                </dd>
+              </div>
               <div className="flex justify-between">
                 <dt className="text-[#737A74]">Status</dt>
                 <dd>
@@ -362,6 +440,14 @@ function AdminRefunds() {
                 <dt className="text-[#737A74]">Reason</dt>
                 <dd className="mt-1">{detail.reason || "—"}</dd>
               </div>
+              {detail.decision_note && (
+                <div>
+                  <dt className="text-[#737A74]">Admin decision note</dt>
+                  <dd className="mt-1 whitespace-pre-wrap">
+                    {detail.decision_note}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt className="text-[#737A74]">Selected items</dt>
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, false
@@ -10,6 +10,8 @@ from app.database import Base
 if TYPE_CHECKING:
     from app.models.user import User
 
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
@@ -40,6 +42,7 @@ class PasswordResetToken(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
+        default=utcnow,
         server_default=func.now(),
     )
 

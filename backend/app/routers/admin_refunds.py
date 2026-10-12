@@ -32,6 +32,7 @@ def get_all_refunds(
 ):
     query = select(Refund).options(
         selectinload(Refund.order).selectinload(Order.user),
+        selectinload(Refund.order).selectinload(Order.payment),
         selectinload(Refund.refund_items),
     )
 
@@ -71,6 +72,17 @@ def get_all_refunds(
                 "customer_email": user.email,
                 "customer_phone": user.phone_number,
                 "refund_items": refund.refund_items,
+                "decision_note": refund.decision_note,
+                "payment_method": (
+                    refund.order.payment.payment_method
+                    if refund.order.payment and refund.order.payment.payment_method
+                    else refund.order.payment_method
+                ),
+                "gateway_payment_id": (
+                    refund.order.payment.gateway_payment_id
+                    if refund.order.payment
+                    else None
+                ),
             }
         )
 
