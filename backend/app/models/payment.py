@@ -51,6 +51,11 @@ class Payment(Base):
         CheckConstraint("amount > 0", name="ck_payments_amount_positive"),
         CheckConstraint("length(currency) = 3", name="ck_payments_currency_len"),
         Index("ix_payments_status_created_at", "status", "created_at"),
+        CheckConstraint(
+            "gateway_order_creation_state IN "
+            "('not_started', 'attempting', 'created', 'unknown')",
+            name="ck_payments_gateway_order_creation_state",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -72,6 +77,13 @@ class Payment(Base):
         String(255),
         unique=True,
         nullable=True,
+    )
+
+    gateway_order_creation_state: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="not_started",
+        server_default=text("'unknown'"),
     )
 
     gateway_payment_id: Mapped[str | None] = mapped_column(

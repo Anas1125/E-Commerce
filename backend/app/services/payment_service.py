@@ -165,24 +165,58 @@ def create_payment(
 
         _ensure_amount_matches(order, payment)
 
+        # If an ID already exists, the provider order was created.
+        # Repair the marker if an older application instance left it stale.
         if payment.gateway_order_id:
+            if payment.gateway_order_creation_state != "created":
+                payment.gateway_order_creation_state = "created"
+                db.commit()
+                db.refresh(payment)
             return payment
+
+        # Never create another provider order if a previous attempt may
+        # have reached Razorpay but its result was not saved locally.
+        if payment.gateway_order_creation_state != "not_started":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "We could not confirm whether your payment setup "
+                    "completed. Do not start another payment attempt. "
+                    "Please contact support for reconciliation."
+                ),
+            )
 
         client = get_razorpay_client()
 
+        amount_paise = _amount_to_paise(payment.amount)
+        currency = payment.currency
+        receipt = order.order_number
+        order_id_value = str(order.id)
+        order_number_value = order.order_number
+
+        payment.gateway_order_creation_state = "attempting"
+        db.commit()
+
         razorpay_order = client.order.create(
             {
-                "amount": _amount_to_paise(payment.amount),
-                "currency": payment.currency,
-                "receipt": order.order_number,
+                "amount": amount_paise,
+                "currency": currency,
+                "receipt": receipt,
                 "notes": {
-                    "order_id": str(order.id),
-                    "order_number": order.order_number,
+                    "order_id": order_id_value,
+                    "order_number": order_number_value,
                 },
             }
         )
 
-        payment.gateway_order_id = razorpay_order["id"]
+        gateway_order_id = razorpay_order.get("id")
+        if not isinstance(gateway_order_id, str) or not gateway_order_id.strip():
+            raise RuntimeError(
+                "Razorpay order creation response did not contain a valid ID"
+            )
+
+        payment.gateway_order_id = gateway_order_id
+        payment.gateway_order_creation_state = "created"
 
         db.commit()
         db.refresh(payment)

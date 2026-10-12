@@ -44,6 +44,7 @@ def make_case(
     age_minutes=31,
     gateway_order_id=None,
     reserved_quantity=3,
+    creation_state="not_started",
 ):
     now = datetime(2026, 10, 12, 14, 0, tzinfo=timezone.utc)
 
@@ -67,6 +68,7 @@ def make_case(
         gateway_order_id=gateway_order_id,
         failure_code=None,
         failure_reason=None,
+        gateway_order_creation_state=creation_state,
     )
 
     inventory = SimpleNamespace(
@@ -139,5 +141,36 @@ def test_expiry_skips_inconsistent_inventory_reservation():
     assert order.order_status == "pending"
     assert payment.status == "pending"
     assert inventory.reserved_quantity == 1
+    assert db.commits == 0
+    assert db.rollbacks == 1
+
+def test_expiry_skips_payment_creation_in_progress():
+    now, order, payment, inventory = make_case(
+        creation_state="attempting",
+    )
+    db = FakeDB([order, payment, inventory])
+
+    count = service.expire_unstarted_upi_orders(db, now=now)
+
+    assert count == 0
+    assert order.order_status == "pending"
+    assert payment.status == "pending"
+    assert inventory.reserved_quantity == 3
+    assert db.commits == 0
+    assert db.rollbacks == 1
+
+
+def test_expiry_skips_legacy_payment_with_unknown_creation_state():
+    now, order, payment, inventory = make_case(
+        creation_state="unknown",
+    )
+    db = FakeDB([order, payment, inventory])
+
+    count = service.expire_unstarted_upi_orders(db, now=now)
+
+    assert count == 0
+    assert order.order_status == "pending"
+    assert payment.status == "pending"
+    assert inventory.reserved_quantity == 3
     assert db.commits == 0
     assert db.rollbacks == 1

@@ -293,3 +293,103 @@ def test_captured_payment_for_cancelled_order_requires_reconciliation(
     assert payment.status == "failed"
     assert db.commits == 0
     assert db.rollbacks == 1
+
+def test_create_payment_does_not_repeat_ambiguous_creation(monkeypatch):
+    order = make_order(
+        payment_status="pending",
+        order_status="pending",
+    )
+    order.order_number = "TL-TEST-RECEIPT"
+
+    payment = make_payment(status="pending")
+    payment.gateway_order_id = None
+    payment.gateway_order_creation_state = "attempting"
+
+    db = FakeDB()
+    user = SimpleNamespace(id=3)
+
+    monkeypatch.setattr(
+        service,
+        "_lock_order_then_payment",
+        lambda db, **kwargs: (order, payment),
+    )
+
+    client_calls = []
+
+    def unexpected_client():
+        client_calls.append(True)
+        raise AssertionError(
+            "Razorpay client must not be called for an ambiguous attempt"
+        )
+
+    monkeypatch.setattr(
+        service,
+        "get_razorpay_client",
+        unexpected_client,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        service.create_payment(order.id, user, db)
+
+    assert exc.value.status_code == 409
+    assert payment.gateway_order_creation_state == "attempting"
+    assert payment.gateway_order_id is None
+    assert client_calls == []
+    assert db.commits == 0
+    assert db.rollbacks == 1
+
+
+def test_create_payment_persists_successful_gateway_order(monkeypatch):
+    order = make_order(
+        payment_status="pending",
+        order_status="pending",
+    )
+    order.order_number = "TL-TEST-RECEIPT"
+
+    payment = make_payment(status="pending")
+    payment.gateway_order_id = None
+    payment.gateway_order_creation_state = "not_started"
+
+    db = FakeDB()
+    user = SimpleNamespace(id=3)
+    create_calls = []
+
+    def create_gateway_order(payload):
+        create_calls.append(payload)
+        return {"id": "order_created_test_123"}
+
+    client = SimpleNamespace(
+        order=SimpleNamespace(create=create_gateway_order)
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_lock_order_then_payment",
+        lambda db, **kwargs: (order, payment),
+    )
+    monkeypatch.setattr(
+        service,
+        "get_razorpay_client",
+        lambda: client,
+    )
+
+    result = service.create_payment(order.id, user, db)
+
+    assert result is payment
+    assert payment.gateway_order_id == "order_created_test_123"
+    assert payment.gateway_order_creation_state == "created"
+    assert len(create_calls) == 1
+
+    assert create_calls[0] == {
+        "amount": 10000,
+        "currency": "INR",
+        "receipt": "TL-TEST-RECEIPT",
+        "notes": {
+            "order_id": str(order.id),
+            "order_number": "TL-TEST-RECEIPT",
+        },
+    }
+
+    # One commit for "attempting", another for the returned gateway ID.
+    assert db.commits == 2
+    assert db.rollbacks == 0

@@ -51,6 +51,7 @@ def expire_unstarted_upi_orders(
             Payment.payment_gateway == "razorpay",
             Payment.status == "pending",
             Payment.gateway_order_id.is_(None),
+            Payment.gateway_order_creation_state == "not_started",
         )
         .order_by(Order.created_at.asc(), Order.id.asc())
         .limit(batch_size)
@@ -88,6 +89,7 @@ def expire_unstarted_upi_orders(
                 or order.payment_status != "pending"
                 or order.payment_method != "upi"
                 or payment is None
+                or payment.gateway_order_creation_state != "not_started"
                 or payment.payment_gateway != "razorpay"
                 or payment.status != "pending"
                 or payment.gateway_order_id is not None

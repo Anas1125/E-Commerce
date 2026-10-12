@@ -713,13 +713,13 @@ def cancel_order(
 
     order = db.scalar(
         select(Order)
-        .options(
-            selectinload(Order.items)
-        )
+        .options(selectinload(Order.items))
         .where(
             Order.id == order_id,
             Order.user_id == user.id,
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     if order is None:
@@ -727,6 +727,13 @@ def cancel_order(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
         )
+
+    payment = db.scalar(
+        select(Payment)
+        .where(Payment.order_id == order.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
     if order.order_status in {"cancelled", "delivered"}:
         raise HTTPException(
@@ -738,6 +745,21 @@ def cancel_order(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Paid orders require a refund process",
+        )
+
+    if order.payment_method == "upi" and (
+        payment is None
+        or payment.payment_gateway != "razorpay"
+        or payment.gateway_order_id is not None
+        or payment.gateway_order_creation_state != "not_started"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This UPI checkout has started or its payment status "
+                "is uncertain. Reconcile the payment before cancelling "
+                "the order."
+            ),
         )
 
     for order_item in order.items:
@@ -897,12 +919,24 @@ def update_order_status(
             selectinload(Order.payment),
         )
         .where(Order.id == order_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
     if order is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
+        )
+
+    payment = None
+
+    if new_status == "cancelled":
+        payment = db.scalar(
+            select(Payment)
+            .where(Payment.order_id == order.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
 
     allowed_transitions = {
@@ -928,6 +962,23 @@ def update_order_status(
                 f"'{current_status}' to '{new_status}'"
             ),
         )
+
+    if new_status == "cancelled" and order.payment_method == "upi":
+        if (
+            payment is None
+            or payment.payment_gateway != "razorpay"
+            or payment.gateway_order_id is not None
+            or payment.gateway_order_creation_state != "not_started"
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This UPI checkout has started or its payment status "
+                    "is uncertain. Reconcile the payment before cancelling "
+                    "the order."
+                ),
+            )
+
 
     # COD payment is collected when the order is delivered.
     if new_status == "delivered":
@@ -1007,6 +1058,37 @@ def update_order_status(
                         "An unpaid order cannot be marked as delivered"
                     ),
                 )
+
+    if new_status == "cancelled":
+        locked_inventory = {}
+
+        # Lock and validate every inventory row before changing any.
+        for item in sorted(order.items, key=lambda item: item.product_id):
+            inventory = db.scalar(
+                select(Inventory)
+                .where(Inventory.product_id == item.product_id)
+                .with_for_update()
+            )
+
+            if (
+                inventory is None
+                or inventory.reserved_quantity < item.quantity
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Inventory reservation is inconsistent. "
+                        "The order was not cancelled."
+                    ),
+                )
+
+            locked_inventory[item.product_id] = inventory
+
+        # Release reservations only after all rows are validated.
+        for item in order.items:
+            locked_inventory[item.product_id].reserved_quantity -= (
+                item.quantity
+            )
 
     order.order_status = new_status
 
