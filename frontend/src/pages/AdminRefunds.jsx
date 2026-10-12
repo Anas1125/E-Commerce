@@ -236,7 +236,11 @@ function AdminRefunds() {
 
     if (
       !window.confirm(
-        `Record refund #${detail.id} as completed with gateway reference "${reference}"? This cannot be undone here.`,
+       `Record refund #${detail.id} as completed with ${
+          detail?.payment_method?.toLowerCase() === "cod"
+            ? "manual transfer reference"
+            : "gateway refund reference"
+        } "${reference}"? This cannot be undone here.`
       )
     ) {
       return;
@@ -244,8 +248,12 @@ function AdminRefunds() {
 
     setBusy(true);
     try {
+      const isCod = detail?.payment_method?.toLowerCase() === "cod";
+
       await api.post(`/refunds/${detail.id}/complete`, null, {
-        params: { gateway_refund_id: reference },
+        params: isCod
+          ? { manual_refund_reference: reference }
+          : { gateway_refund_id: reference },
       });
       notify("Refund marked completed.");
       setDetail(null);
@@ -375,7 +383,9 @@ function AdminRefunds() {
       </AdminPanel>
       <p className="mt-4 text-xs text-[#737A74]">
         Declining a refund notifies the customer. Completing a refund requires a
-        genuine gateway refund reference; do not enter a placeholder.
+        genuine {detail?.payment_method?.toLowerCase() === "cod"
+        ? "Manual bank/UPI transfer reference"
+        : "Gateway refund reference"}; do not enter a placeholder.
       </p>
       {detail && (
         <div
@@ -482,6 +492,12 @@ function AdminRefunds() {
                   <dd className="mt-1">{detail.gateway_refund_id}</dd>
                 </div>
               )}
+              {detail.manual_refund_reference && (
+                <div>
+                  <dt>Manual transfer reference</dt>
+                  <dd>{detail.manual_refund_reference}</dd>
+                </div>
+              )}
             </dl>
             {detail.status === "approved" && (
               <form
@@ -489,13 +505,19 @@ function AdminRefunds() {
                 className="mt-6 border-t border-[#E3E5DF] pt-5"
               >
                 <label className="block text-sm font-medium">
-                  Gateway refund reference
+                  {detail?.payment_method?.toLowerCase() === "cod"
+                    ? "Manual bank/UPI transfer reference"
+                    : "Gateway refund reference"}
                   <input
                     required
                     className="field mt-2"
                     value={gatewayId}
                     onChange={(e) => setGatewayId(e.target.value)}
-                    placeholder="Actual provider refund ID"
+                    placeholder={
+                      detail?.payment_method?.toLowerCase() === "cod"
+                        ? "Enter actual bank/UPI transfer reference"
+                        : "Enter actual Razorpay refund ID"
+                    }
                   />
                 </label>
                 <button

@@ -126,13 +126,23 @@ def reject_refund_request(
 )
 def complete_refund_request(
     refund_id: int,
-    gateway_refund_id: str = Query(..., min_length=1, max_length=100),
+    gateway_refund_id: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=255,
+    ),
+    manual_refund_reference: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=255,
+    ),
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     return complete_refund(
         refund_id=refund_id,
         gateway_refund_id=gateway_refund_id,
+        manual_refund_reference=manual_refund_reference,
         admin=current_user,
         db=db,
     )

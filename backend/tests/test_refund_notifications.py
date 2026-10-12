@@ -108,6 +108,7 @@ def make_refund(status="requested"):
         reviewed_by_id=None,
         reviewed_at=None,
         gateway_refund_id=None,
+        manual_refund_reference=None,
         completed_at=None,
     )
 
@@ -386,3 +387,172 @@ def test_rejection_route_requires_admin_dependency():
         dependency.call is require_admin
         for dependency in route.dependant.dependencies
     )
+
+def test_cod_manual_refund_completes_and_notifies_after_commit(
+    monkeypatch,
+):
+    _, order, payment, refund = make_refund(status="approved")
+
+    payment.payment_gateway = "cod"
+    payment.gateway_payment_id = None
+    order.payment_method = "cod"
+
+    db = FakeDB(
+        scalar_results=[order, payment, refund, None],
+        scalars_results=[[refund]],
+        execute_result=FakeResult(
+            SimpleNamespace(
+                order_id=order.id,
+                payment_id=payment.id,
+            )
+        ),
+    )
+
+    notifications = []
+
+    def fail_gateway_verification(*args, **kwargs):
+        pytest.fail("COD refunds must not call Razorpay verification")
+
+    def fake_notify(**kwargs):
+        assert db.commits == 1
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(
+        service,
+        "_verify_gateway_refund",
+        fail_gateway_verification,
+    )
+    monkeypatch.setattr(
+        service,
+        "_notify_customer_refund_status",
+        fake_notify,
+    )
+
+    result = service.complete_refund(
+        refund_id=refund.id,
+        manual_refund_reference="UTR_TEST_123",
+        admin=SimpleNamespace(id=99),
+        db=db,
+    )
+
+    assert result is refund
+    assert refund.status == "completed"
+    assert refund.gateway_refund_id is None
+    assert refund.manual_refund_reference == "UTR_TEST_123"
+    assert refund.completed_at is not None
+    assert payment.status == "refunded"
+    assert order.payment_status == "refunded"
+    assert db.commits == 1
+    assert notifications[0]["status"] == "completed"
+    assert notifications[0]["email"] == "customer@example.com"
+
+
+def test_cod_refund_requires_manual_reference(monkeypatch):
+    _, order, payment, refund = make_refund(status="approved")
+
+    payment.payment_gateway = "cod"
+    payment.gateway_payment_id = None
+    order.payment_method = "cod"
+
+    db = FakeDB(
+        scalar_results=[order, payment, refund],
+        execute_result=FakeResult(
+            SimpleNamespace(
+                order_id=order.id,
+                payment_id=payment.id,
+            )
+        ),
+    )
+
+    notifications = []
+    monkeypatch.setattr(
+        service,
+        "_notify_customer_refund_status",
+        lambda **kwargs: notifications.append(kwargs),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        service.complete_refund(
+            refund_id=refund.id,
+            admin=SimpleNamespace(id=99),
+            db=db,
+        )
+
+    assert exc.value.status_code == 400
+    assert refund.status == "approved"
+    assert db.commits == 0
+    assert db.rollbacks == 1
+    assert notifications == []
+
+
+def test_cod_refund_rejects_duplicate_manual_reference(monkeypatch):
+    _, order, payment, refund = make_refund(status="approved")
+
+    payment.payment_gateway = "cod"
+    payment.gateway_payment_id = None
+    order.payment_method = "cod"
+
+    db = FakeDB(
+        scalar_results=[
+            order,
+            payment,
+            refund,
+            SimpleNamespace(id=999),
+        ],
+        execute_result=FakeResult(
+            SimpleNamespace(
+                order_id=order.id,
+                payment_id=payment.id,
+            )
+        ),
+    )
+
+    notifications = []
+    monkeypatch.setattr(
+        service,
+        "_notify_customer_refund_status",
+        lambda **kwargs: notifications.append(kwargs),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        service.complete_refund(
+            refund_id=refund.id,
+            manual_refund_reference="UTR_ALREADY_USED",
+            admin=SimpleNamespace(id=99),
+            db=db,
+        )
+
+    assert exc.value.status_code == 409
+    assert refund.status == "approved"
+    assert db.commits == 0
+    assert db.rollbacks == 1
+    assert notifications == []
+
+
+def test_unsupported_gateway_refund_is_not_completed():
+    _, order, payment, refund = make_refund(status="approved")
+
+    payment.payment_gateway = "unsupported_gateway"
+
+    db = FakeDB(
+        scalar_results=[order, payment, refund],
+        execute_result=FakeResult(
+            SimpleNamespace(
+                order_id=order.id,
+                payment_id=payment.id,
+            )
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        service.complete_refund(
+            refund_id=refund.id,
+            manual_refund_reference="UTR_TEST_456",
+            admin=SimpleNamespace(id=99),
+            db=db,
+        )
+
+    assert exc.value.status_code == 409
+    assert refund.status == "approved"
+    assert db.commits == 0
+    assert db.rollbacks == 1

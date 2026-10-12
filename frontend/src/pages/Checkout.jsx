@@ -879,7 +879,7 @@ function CheckoutContent() {
         setPaymentConfirmedFailed(false);
         setPaymentNeedsSupport(false);
         setError(
-          "Razorpay has not confirmed a captured payment yet. Your order remains unresolved. Please don't pay again; try checking again shortly."
+          "Razorpay has not confirmed a captured payment yet. Your order remains unresolved. Please don't pay again, try checking again shortly."
         );
         return;
       }
@@ -1249,6 +1249,18 @@ function CheckoutContent() {
         };
 
         pendingPaymentRef.current = null;
+      }
+
+      if (order?.order_status === "cancelled") {
+        pendingOrderRef.current = null;
+        pendingPaymentRef.current = null;
+        pendingIdempotencyRef.current = null;
+        clearCheckoutAttempt();
+
+        throw userFacingError(
+          "Your previous checkout expired or was cancelled. " +
+            "Your cart is still available. Please place your order again."
+        );
       }
 
       if (paymentMethod === "cod") {

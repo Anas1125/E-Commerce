@@ -76,6 +76,7 @@ class RefundResponse(BaseModel):
     reason: str | None = None
     status: str
     gateway_refund_id: str | None = None
+    manual_refund_reference: str | None = None
     requested_at: datetime
     completed_at: datetime | None = None
     refund_items: list[RefundItemResponse] = Field(default_factory=list)

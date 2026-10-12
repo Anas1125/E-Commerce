@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    UniqueConstraint,
     Text,
     func,
     text,
@@ -66,6 +67,10 @@ class Refund(Base):
             sqlite_where=text(f"status IN ({_in_list(ACTIVE_REFUND_STATUSES)})"),
         ),
         Index("ix_refunds_status_requested_at", "status", "requested_at"),
+        UniqueConstraint(
+            "manual_refund_reference",
+            name="uq_refunds_manual_refund_reference",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -103,6 +108,11 @@ class Refund(Base):
     gateway_refund_id: Mapped[str | None] = mapped_column(
         String(255),
         unique=True,
+        nullable=True,
+    )
+
+    manual_refund_reference: Mapped[str | None] = mapped_column(
+        String(255),
         nullable=True,
     )
 

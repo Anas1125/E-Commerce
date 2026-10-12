@@ -120,7 +120,8 @@ def _notify_customer_refund_status(
         "completed": (
             f"Refund processed — order {order_number}",
             "Your refund has been processed.",
-            "The refund provider confirmed that the refund was processed.",
+            "Our team has recorded this refund as completed. "
+            "Please check your bank or UPI account for the credit.",
         ),
     }
 
@@ -704,9 +705,10 @@ def _verify_gateway_refund(
 
 def complete_refund(
     refund_id: int,
-    gateway_refund_id: str,
     admin: User,
     db: Session,
+    gateway_refund_id: str | None = None,
+    manual_refund_reference: str | None = None,
 ) -> Refund:
     try:
         ids = db.execute(
@@ -780,24 +782,88 @@ def complete_refund(
         order_number = order.order_number
         refund_amount = refund.amount
 
-        duplicate = db.scalar(
-            select(Refund.id).where(
-                Refund.gateway_refund_id == gateway_refund_id,
-                Refund.id != refund.id,
-            )
+        gateway_refund_id = (
+            gateway_refund_id.strip()
+            if gateway_refund_id
+            else None
+        )
+        manual_refund_reference = (
+            manual_refund_reference.strip()
+            if manual_refund_reference
+            else None
         )
 
-        if duplicate is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This gateway refund ID is already used by another refund",
+        gateway = (payment.payment_gateway or "").strip().lower()
+
+        if gateway == "razorpay":
+            if not gateway_refund_id or manual_refund_reference:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Provide a Razorpay refund ID only "
+                        "for Razorpay payments."
+                    ),
+                )
+
+            duplicate = db.scalar(
+                select(Refund.id).where(
+                    Refund.gateway_refund_id == gateway_refund_id,
+                    Refund.id != refund.id,
+                )
             )
 
-        if payment.payment_gateway == "razorpay":
-            _verify_gateway_refund(refund, payment, gateway_refund_id)
+            if duplicate is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This gateway refund ID is already used.",
+                )
+
+            _verify_gateway_refund(
+                refund,
+                payment,
+                gateway_refund_id,
+            )
+
+            refund.gateway_refund_id = gateway_refund_id
+            refund.manual_refund_reference = None
+
+        elif gateway == "cod":
+            if not manual_refund_reference or gateway_refund_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Provide the actual bank/UPI transfer reference "
+                        "for COD refunds."
+                    ),
+                )
+
+            duplicate = db.scalar(
+                select(Refund.id).where(
+                    Refund.manual_refund_reference
+                    == manual_refund_reference,
+                    Refund.id != refund.id,
+                )
+            )
+
+            if duplicate is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This manual refund reference is already used.",
+                )
+
+            refund.gateway_refund_id = None
+            refund.manual_refund_reference = manual_refund_reference
+
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Refund completion is not supported for "
+                    "this payment gateway."
+                ),
+            )
 
         refund.status = "completed"
-        refund.gateway_refund_id = gateway_refund_id
         refund.completed_at = datetime.now(timezone.utc)
 
         db.flush()

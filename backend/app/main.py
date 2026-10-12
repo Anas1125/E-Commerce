@@ -1,3 +1,7 @@
+import asyncio
+
+from app.services.payment_expiry import upi_order_expiry_loop
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -26,7 +30,22 @@ from app.routers.admin_admins import router as admin_admins_router
 from app.routers import admin_reviews
 from app.routers.notifications import router as notifications_router
 
-app = FastAPI(title="TerraLens E-Commerce API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    expiry_task = asyncio.create_task(upi_order_expiry_loop())
+
+    try:
+        yield
+    finally:
+        expiry_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await expiry_task
+
+
+app = FastAPI(
+    title="TerraLens E-Commerce API",
+    lifespan=lifespan,
+)
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")

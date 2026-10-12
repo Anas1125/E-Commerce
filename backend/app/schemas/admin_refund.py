@@ -16,6 +16,7 @@ class AdminRefundResponse(BaseModel):
     reason: str | None
     status: str
     gateway_refund_id: str | None
+    manual_refund_reference: str | None = None
     requested_at: datetime
     completed_at: datetime | None
     decision_note: str | None = None
