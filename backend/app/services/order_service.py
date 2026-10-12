@@ -88,6 +88,16 @@ def create_order(
     order_data: OrderCreate,
     db: Session,
 ) -> Order:
+    # Serialize idempotent order creation for this customer. A concurrent
+    # retry waits for the first transaction to finish, then checks for the
+    # existing order before validating stock or creating another order.
+    if order_data.idempotency_key:
+        db.scalar(
+            select(User.id)
+            .where(User.id == user.id)
+            .with_for_update()
+        )
+
     existing_order = _get_existing_idempotent_order(
         user=user,
         order_data=order_data,

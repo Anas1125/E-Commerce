@@ -17,7 +17,7 @@ test('user can browse the shop and open a product', async ({ page }) => {
   await expect(page).toHaveURL(/shop/i);
 
   // Open a product
-  await page.getByRole('link', { name: 'Nike Airforce Nike Nike' }).click();
+  await page.getByRole('link', { name: /Nike Airforce/i }).first().click();
 
   // Verify the product is visible
   await expect(
