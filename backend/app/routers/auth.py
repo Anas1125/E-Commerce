@@ -46,8 +46,8 @@ _DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(16))
 
 
 def _utcnow() -> datetime:
-    """Naive UTC now (same value utcnow() returned, without the deprecation)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    """Return the current timezone-aware UTC time."""
+    return datetime.now(timezone.utc)
 
 
 def _normalize_email(email) -> str:
@@ -77,7 +77,12 @@ def _get_valid_reset_token(db: Session, raw_token: str) -> PasswordResetToken:
             detail="This password reset link has already been used.",
         )
 
-    if reset_token.expires_at < _utcnow():
+    expires_at = reset_token.expires_at
+
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at < _utcnow():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This password reset link has expired.",
