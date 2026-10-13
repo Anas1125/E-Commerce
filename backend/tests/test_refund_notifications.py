@@ -556,3 +556,29 @@ def test_unsupported_gateway_refund_is_not_completed():
     assert refund.status == "approved"
     assert db.commits == 0
     assert db.rollbacks == 1
+
+
+def test_requested_refund_email_says_awaiting_review(monkeypatch):
+    emails = []
+
+    monkeypatch.setattr(
+        service,
+        "send_customer_notification",
+        lambda **kwargs: emails.append(kwargs),
+    )
+
+    service._notify_customer_refund_status(
+        email="customer@example.com",
+        customer_name="Test Customer",
+        order_number="TL-TEST-001",
+        amount=Decimal("50.00"),
+        status="requested",
+    )
+
+    assert len(emails) == 1
+    assert emails[0]["email"] == "customer@example.com"
+    assert emails[0]["subject"].startswith(
+        "Refund request received"
+    )
+    assert "awaiting review" in emails[0]["text"].lower()
+    assert "not been approved yet" in emails[0]["text"].lower()

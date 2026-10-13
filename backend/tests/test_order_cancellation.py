@@ -253,3 +253,102 @@ def test_customer_can_cancel_unstarted_upi_order_and_release_reservation(
     assert len(db.added) == 1
     assert db.added[0].status == "cancelled"
     assert db.refreshed == [order]
+
+def test_customer_cancellation_email_is_sent_after_commit(monkeypatch):
+    order = make_order(
+        payment_method="cod",
+        order_status="confirmed",
+        items=[SimpleNamespace(product_id=11, quantity=2)],
+    )
+    order.contact_email = "order@example.com"
+    order.shipping_name = "Order Customer"
+
+    payment = make_payment()
+    inventory = SimpleNamespace(
+        product_id=11,
+        reserved_quantity=5,
+    )
+    user = SimpleNamespace(
+        id=3,
+        first_name="Account",
+        last_name="Customer",
+        email="account@example.com",
+        phone_number="9999999999",
+    )
+
+    db = FakeDB([order, payment, inventory])
+    emails = []
+
+    monkeypatch.setattr(
+        service,
+        "send_admin_notification",
+        lambda **kwargs: None,
+    )
+
+    def capture_customer_email(**kwargs):
+        assert db.commits == 1
+        emails.append(kwargs)
+
+    monkeypatch.setattr(
+        service,
+        "send_customer_notification",
+        capture_customer_email,
+    )
+
+    result = service.cancel_order(order.id, user, db)
+
+    assert result is order
+    assert order.order_status == "cancelled"
+    assert inventory.reserved_quantity == 3
+    assert db.commits == 1
+
+    assert len(emails) == 1
+    assert emails[0]["email"] == "order@example.com"
+    assert emails[0]["subject"].startswith(
+        "Your order has been cancelled"
+    )
+
+
+def test_shipping_status_email_is_sent_after_commit(monkeypatch):
+    order = make_order(
+        payment_method="cod",
+        order_status="processing",
+    )
+    order.contact_email = "order@example.com"
+    order.shipping_name = "Order Customer"
+    order.user = SimpleNamespace(
+        email="account@example.com",
+        first_name="Account",
+        last_name="Customer",
+    )
+
+    db = FakeDB([order])
+    emails = []
+
+    def capture_customer_email(**kwargs):
+        assert db.commits == 1
+        emails.append(kwargs)
+
+    monkeypatch.setattr(
+        service,
+        "send_customer_notification",
+        capture_customer_email,
+    )
+
+    result = service.update_order_status(
+        order_id=order.id,
+        new_status="shipped",
+        note="Dispatched",
+        admin=SimpleNamespace(id=99),
+        db=db,
+    )
+
+    assert result is order
+    assert order.order_status == "shipped"
+    assert db.commits == 1
+
+    assert len(emails) == 1
+    assert emails[0]["email"] == "order@example.com"
+    assert emails[0]["subject"].startswith(
+        "Your order has shipped"
+    )

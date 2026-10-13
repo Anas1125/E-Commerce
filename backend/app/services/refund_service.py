@@ -103,8 +103,15 @@ def _notify_customer_refund_status(
     status: str,
     decision_note: str | None = None,
 ) -> None:
-    """Send a customer refund update after its database transaction commits."""
     messages = {
+        "requested": (
+            f"Refund request received — order {order_number}",
+            "We've received your refund request.",
+            "Your refund request has been received and is "
+            "awaiting review. It has not been approved yet, "
+            "and no money has been returned. We'll email you "
+            "when our team updates its status.",
+        ),
         "approved": (
             f"Refund approved — order {order_number}",
             "Your refund request has been approved.",
@@ -439,7 +446,11 @@ def request_refund(
             ).strip()
             or "Customer"
         )
-        email = user.email or ""
+        email = (
+            getattr(order, "contact_email", None)
+            or user.email
+            or ""
+        ).strip()
         phone = (
             str(user.phone_number)
             if user.phone_number
@@ -471,6 +482,21 @@ def request_refund(
         amount=refund_amount,
         reason=reason,
     )
+
+    try:
+        _notify_customer_refund_status(
+            email=email,
+            customer_name=customer_name,
+            order_number=order_number,
+            amount=refund_amount,
+            status="requested",
+        )
+    except Exception:
+        logger.exception(
+            "Refund request for order %s was saved, "
+            "but customer notification failed",
+            order_number,
+        )
 
     return refund
 
@@ -507,7 +533,11 @@ def approve_refund(
         order = refund.order
         customer = order.user
 
-        email = customer.email or ""
+        email = (
+            getattr(order, "contact_email", None)
+            or customer.email
+            or ""
+        ).strip()
         customer_name = (
             " ".join(
                 part
@@ -592,7 +622,11 @@ def reject_refund(
         order = refund.order
         customer = order.user
 
-        email = customer.email or ""
+        email = (
+            getattr(order, "contact_email", None)
+            or customer.email
+            or ""
+        ).strip()
         customer_name = (
             " ".join(
                 part

@@ -1,7 +1,8 @@
+import logging
+import secrets
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-import secrets
-
+from html import escape
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -22,11 +23,13 @@ from app.models.coupon_usage import CouponUsage
 from app.services.pricing import calculate_discount
 from app.services.notifications import (
     send_admin_notification,
+    send_customer_notification,
     send_low_stock_notification,
     send_out_of_stock_notification,
 )
 from sqlalchemy.exc import IntegrityError
 
+logger = logging.getLogger(__name__)
 
 def generate_order_number() -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
@@ -34,6 +37,176 @@ def generate_order_number() -> str:
 
     return f"TL-{timestamp}-{random_part}"
 
+def _notify_customer_order_status(
+    order: Order,
+    new_status: str,
+    user: User | None = None,
+) -> None:
+    """Notify the customer after an order status has been committed."""
+
+    messages = {
+        "confirmed": (
+            "Order confirmed",
+            "Your order has been confirmed.",
+            "We've confirmed your TerraLens order and it is queued "
+            "for preparation.",
+        ),
+        "processing": (
+            "Your order is being prepared",
+            "Your order is being prepared.",
+            "We're preparing your order for dispatch.",
+        ),
+        "shipped": (
+            "Your order has shipped",
+            "Your order is on its way.",
+            "Your order has been dispatched.",
+        ),
+        "out_for_delivery": (
+            "Your order is out for delivery",
+            "Your order is out for delivery.",
+            "Your order is with the delivery service. Please keep "
+            "your phone available if the delivery team needs to "
+            "contact you.",
+        ),
+        "delivered": (
+            "Your order has been delivered",
+            "Your order has been delivered.",
+            "Your order has been marked as delivered. Thank you "
+            "for shopping with TerraLens.",
+        ),
+        "cancelled": (
+            "Your order has been cancelled",
+            "Your order has been cancelled.",
+            "Your TerraLens order has been cancelled. Any eligible "
+            "refund is handled separately through the refund process.",
+        ),
+    }
+
+    message = messages.get(new_status)
+
+    if message is None:
+        return
+
+    subject_prefix, heading, description = message
+
+    customer = user or getattr(order, "user", None)
+
+    recipient = str(
+        getattr(order, "contact_email", None) or ""
+    ).strip()
+
+    if not recipient:
+        recipient = str(
+            getattr(customer, "email", None) or ""
+        ).strip()
+
+    if not recipient:
+        logger.warning(
+            "Customer order notification skipped: email missing "
+            "for order %s",
+            order.order_number,
+        )
+        return
+
+    customer_name = " ".join(
+        str(
+            getattr(order, "shipping_name", None)
+            or ""
+        ).split()
+    )
+
+    if not customer_name:
+        customer_name = " ".join(
+            part
+            for part in [
+                getattr(customer, "first_name", None),
+                getattr(customer, "last_name", None),
+            ]
+            if part
+        ).strip()
+
+    if not customer_name:
+        customer_name = "Customer"
+
+    safe_name = escape(customer_name)
+    safe_order_number = escape(str(order.order_number))
+    safe_heading = escape(heading)
+    safe_description = escape(description)
+    safe_total = escape(f"₹{order.total_amount:,.2f}")
+
+    subject = f"{subject_prefix} — {order.order_number}"
+
+    html = f"""
+        <div style="
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 28px;
+            color: #1F2521;
+        ">
+            <div style="
+                padding-bottom: 18px;
+                border-bottom: 1px solid #E3E5DF;
+            ">
+                <h2 style="color: #486B57; margin: 0;">
+                    {safe_heading}
+                </h2>
+                <p>Hello {safe_name},</p>
+                <p>{safe_description}</p>
+            </div>
+
+            <div style="
+                margin-top: 20px;
+                padding: 18px;
+                background: #F8F9F6;
+                border-radius: 10px;
+            ">
+                <p>
+                    <strong>Order:</strong>
+                    {safe_order_number}
+                </p>
+                <p>
+                    <strong>Order status:</strong>
+                    {escape(new_status.replace("_", " ").title())}
+                </p>
+                <p>
+                    <strong>Order total:</strong>
+                    {safe_total}
+                </p>
+            </div>
+
+            <p style="
+                margin-top: 24px;
+                font-size: 13px;
+                color: #737A74;
+            ">
+                This is an automated TerraLens order update.
+            </p>
+        </div>
+    """
+
+    text = (
+        f"Hello {customer_name},\n\n"
+        f"{heading}\n"
+        f"{description}\n\n"
+        f"Order: {order.order_number}\n"
+        f"Status: {new_status.replace('_', ' ').title()}\n"
+        f"Order total: ₹{order.total_amount:,.2f}\n\n"
+        "This is an automated TerraLens order update."
+    )
+
+    try:
+        send_customer_notification(
+            email=recipient,
+            subject=subject,
+            html=html,
+            text=text,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to send order status email for order %s",
+            order.order_number,
+        )
 
 def _get_existing_idempotent_order(
     *,
@@ -898,7 +1071,11 @@ def cancel_order(
             </div>
         """,
     )
-
+    _notify_customer_order_status(
+        order,
+        "cancelled",
+        user=user,
+    )
     return order
 
 
@@ -915,6 +1092,7 @@ def update_order_status(
         .options(
             selectinload(Order.items),
             selectinload(Order.payment),
+            selectinload(Order.user),
         )
         .where(Order.id == order_id)
         .with_for_update()
@@ -1086,5 +1264,11 @@ def update_order_status(
 
     db.commit()
     db.refresh(order)
+
+    _notify_customer_order_status(
+        order,
+        new_status,
+        user=getattr(order, "user", None),
+    )
 
     return order
