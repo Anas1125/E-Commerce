@@ -106,3 +106,33 @@ def test_same_idempotency_key_with_different_address_returns_409():
     assert exc.value.status_code == 409
     assert "different checkout details" in exc.value.detail
     assert db.scalar.call_count == 2
+
+def test_create_order_blocks_new_order_when_upi_checkout_is_pending(
+    monkeypatch,
+):
+    user = SimpleNamespace(id=13)
+    unresolved_order = SimpleNamespace(
+        id=84,
+        order_number="TL-PENDING-084",
+    )
+
+    db = Mock()
+    db.scalar.side_effect = [user.id, unresolved_order]
+
+    monkeypatch.setattr(
+        order_service,
+        "_get_existing_idempotent_order",
+        lambda **kwargs: None,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        order_service.create_order(
+            user=user,
+            order_data=make_request(),
+            db=db,
+        )
+
+    assert exc.value.status_code == 409
+    assert unresolved_order.order_number in exc.value.detail
+    db.add.assert_not_called()
+    db.rollback.assert_called_once()

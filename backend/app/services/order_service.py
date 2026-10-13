@@ -279,6 +279,32 @@ def create_order(
         return existing_order
     
     try:
+        unresolved_order = db.scalar(
+            select(Order)
+            .join(Payment, Payment.order_id == Order.id)
+            .where(
+                Order.user_id == user.id,
+                Order.payment_method == "upi",
+                Order.order_status == "pending",
+                Payment.payment_gateway == "razorpay",
+            )
+            .order_by(
+                Order.created_at.asc(),
+                Order.id.asc(),
+            )
+            .limit(1)
+        )
+
+        if unresolved_order is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "An unresolved UPI checkout already exists for "
+                    f"order {unresolved_order.order_number}. "
+                    "Resume that checkout and check its payment "
+                    "status before placing another order."
+                ),
+            )
         address = db.scalar(
             select(Address).where(
                 Address.id == order_data.shipping_address_id,

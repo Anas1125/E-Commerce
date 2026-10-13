@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
+from app.models.order import Order
+from app.models.payment import Payment
 from app.database import get_db
 from app.models.user import User
 from app.schemas.payment import (
@@ -9,6 +12,7 @@ from app.schemas.payment import (
     PaymentFail,
     PaymentResponse,
     PaymentStatusCheck,
+    PendingCheckoutRecoveryResponse,
 )
 from app.services.dependencies import get_current_user
 from app.services.payment_service import (
@@ -24,6 +28,46 @@ router = APIRouter(
     tags=["Payments"],
 )
 
+@router.get(
+    "/pending-checkout",
+    response_model=PendingCheckoutRecoveryResponse | None,
+)
+def get_pending_checkout_recovery(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = db.scalar(
+        select(Order)
+        .join(Payment, Payment.order_id == Order.id)
+        .options(selectinload(Order.payment))
+        .where(
+            Order.user_id == current_user.id,
+            Order.payment_method == "upi",
+            Order.order_status == "pending",
+            Payment.payment_gateway == "razorpay",
+        )
+        .order_by(Order.created_at.asc(), Order.id.asc())
+        .limit(1)
+    )
+
+    if order is None or order.payment is None:
+        return None
+
+    payment = order.payment
+
+    return PendingCheckoutRecoveryResponse(
+        order_id=order.id,
+        order_number=order.order_number,
+        payment_id=payment.id,
+        gateway_order_id=payment.gateway_order_id,
+        gateway_order_creation_state=(
+            payment.gateway_order_creation_state
+        ),
+        amount=payment.amount,
+        currency=payment.currency,
+        status=payment.status,
+        order_payment_status=order.payment_status,
+    )
 
 @router.post(
     "/",

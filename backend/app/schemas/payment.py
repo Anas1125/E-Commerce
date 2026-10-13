@@ -46,3 +46,14 @@ class PaymentResponse(BaseModel):
     status: str
     paid_at: datetime | None = None
     created_at: datetime
+
+class PendingCheckoutRecoveryResponse(BaseModel):
+    order_id: int
+    order_number: str
+    payment_id: int
+    gateway_order_id: str | None = None
+    gateway_order_creation_state: str
+    amount: Decimal
+    currency: str = Field(min_length=3, max_length=3)
+    status: str
+    order_payment_status: str

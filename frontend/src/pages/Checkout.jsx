@@ -400,13 +400,19 @@ function CheckoutContent() {
           const order = {
             id: Number(saved.orderId),
             order_number: saved.orderNumber || String(saved.orderId),
+            gateway_order_creation_state:
+              saved.gatewayOrderCreationState,
+            status: saved.paymentStatus,
           };
 
           const payment = {
             id: Number(saved.paymentId),
             gateway_order_id: saved.gatewayOrderId,
+            gateway_order_creation_state:
+              saved.gatewayOrderCreationState,
             amount: saved.amount,
             currency: saved.currency,
+            status: saved.paymentStatus,
           };
 
           pendingOrderRef.current = {
@@ -428,7 +434,85 @@ function CheckoutContent() {
           setPaymentMethod("upi");
           setPaymentPending(order.order_number);
           setStep(2);
-        }
+        } else {
+            const { data: recovery } = await api.get(
+              "/payments/pending-checkout"
+            );
+
+            if (cancelled) {
+              return;
+            }
+
+            if (recovery?.order_id && recovery?.payment_id) {
+              const order = {
+                id: recovery.order_id,
+                order_number: recovery.order_number,
+                order_status: "pending",
+              };
+
+              const orderKey = `recovered:${order.id}`;
+
+              const payment = {
+                id: recovery.payment_id,
+                gateway_order_id: recovery.gateway_order_id,
+                gateway_order_creation_state:
+                  recovery.gateway_order_creation_state,
+                amount: recovery.amount,
+                currency: recovery.currency,
+                status: recovery.status,
+              };
+
+              pendingOrderRef.current = {
+                key: orderKey,
+                order,
+                idempotencyKey: null,
+              };
+
+              pendingPaymentRef.current = {
+                key: `${order.id}|${orderKey}`,
+                payment,
+              };
+
+              pendingIdempotencyRef.current = {
+                userId: user?.id,
+                orderKey,
+                idempotencyKey: null,
+              };
+
+              savePendingPayment({
+                userId: user?.id,
+                orderId: order.id,
+                orderNumber: order.order_number,
+                paymentId: payment.id,
+                gatewayOrderId: payment.gateway_order_id,
+                gatewayOrderCreationState:
+                  payment.gateway_order_creation_state,
+                amount: payment.amount,
+                currency: payment.currency,
+                paymentStatus: payment.status,
+                orderPaymentStatus: recovery.order_payment_status,
+                orderKey,
+                idempotencyKey: null,
+              });
+
+              setPaymentMethod("upi");
+              setPaymentPending(order.order_number);
+
+              setPaymentConfirmedFailed(
+                payment.status === "failed"
+              );
+
+              setPaymentNeedsSupport(
+                ["refunded", "partially_refunded"].includes(payment.status) ||
+                (
+                  !payment.gateway_order_id &&
+                  payment.gateway_order_creation_state !== "not_started"
+                )
+              );
+
+              setStep(2);
+            }
+          }
 
         setError("");
       } catch (requestError) {
@@ -918,7 +1002,10 @@ function CheckoutContent() {
     } catch (requestError) {
       setPaymentConfirmedFailed(false);
       setPaymentNeedsSupport(
-        requestError?.response?.status === 409
+        requestError?.response?.status === 409 ||
+        /order still needs confirmation/i.test(
+          String(requestError?.message || "")
+        )
       );
       setError(
         getErrorMessage(
@@ -969,9 +1056,25 @@ function CheckoutContent() {
         );
       }
 
-      const { data: payment } = await api.post("/payments/retry", {
-        payment_id: savedPayment.id,
-      });
+      let paymentResponse;
+
+      if (savedPayment.gateway_order_id) {
+        paymentResponse = await api.post("/payments/retry", {
+          payment_id: savedPayment.id,
+        });
+      } else if (
+        savedPayment.gateway_order_creation_state === "not_started"
+      ) {
+        paymentResponse = await api.post("/payments/", {
+          order_id: savedOrder.order.id,
+        });
+      } else {
+        throw userFacingError(
+          "Payment setup could not be confirmed. Please contact support before trying again."
+        );
+      }
+
+      const payment = paymentResponse.data;
 
       const order = savedOrder.order;
 
@@ -1011,6 +1114,9 @@ function CheckoutContent() {
         currency: payment.currency,
         orderKey: savedOrder.key,
         idempotencyKey: savedOrder.idempotencyKey ?? null,
+        gatewayOrderCreationState:
+          payment.gateway_order_creation_state,
+        paymentStatus: payment.status,
       });
 
       setPaymentConfirmedFailed(false);
@@ -2363,7 +2469,7 @@ function CheckoutContent() {
                     <button
                       type="button"
                       onClick={retryPendingPayment}
-                      disabled={busy || confirming || !paymentConfirmedFailed}
+                      disabled={busy || confirming || paymentNeedsSupport}
                       className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-[#2874F0] px-5 py-3 text-sm font-bold text-[#2874F0] transition hover:bg-[#F5F9FF] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {busy ? "Opening Razorpay..." : "Retry UPI Payment"}

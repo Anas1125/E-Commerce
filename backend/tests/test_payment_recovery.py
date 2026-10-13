@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.services import payment_service as service
+from app.routers.payments import get_pending_checkout_recovery
 
 
 class FakeDB:
@@ -393,3 +394,49 @@ def test_create_payment_persists_successful_gateway_order(monkeypatch):
     # One commit for "attempting", another for the returned gateway ID.
     assert db.commits == 2
     assert db.rollbacks == 0
+
+def test_pending_checkout_recovery_returns_customer_order():
+    payment = SimpleNamespace(
+        id=45,
+        gateway_order_id="order_test_123",
+        gateway_order_creation_state="created",
+        amount=Decimal("100.00"),
+        currency="INR",
+        status="pending",
+    )
+
+    order = SimpleNamespace(
+        id=12,
+        user_id=3,
+        order_number="TL-TEST-RECOVERY",
+        payment_method="upi",
+        order_status="pending",
+        payment_status="pending",
+        payment=payment,
+    )
+
+    db = SimpleNamespace(
+        scalar=lambda statement: order
+    )
+
+    result = get_pending_checkout_recovery(
+        current_user=SimpleNamespace(id=3),
+        db=db,
+    )
+
+    assert result.order_id == 12
+    assert result.order_number == "TL-TEST-RECOVERY"
+    assert result.payment_id == 45
+    assert result.gateway_order_id == "order_test_123"
+    assert result.status == "pending"
+
+
+def test_pending_checkout_recovery_returns_none_when_missing():
+    db = SimpleNamespace(scalar=lambda statement: None)
+
+    result = get_pending_checkout_recovery(
+        current_user=SimpleNamespace(id=3),
+        db=db,
+    )
+
+    assert result is None
