@@ -40,6 +40,13 @@ def make_order(*, payment_method="cod", order_status="confirmed", items=None):
         order_status=order_status,
         total_amount=1998.00,
         items=items or [],
+        user=SimpleNamespace(
+            id=3,
+            first_name="Test",
+            last_name="Customer",
+            email="test@example.com",
+            phone_number="9999999999",
+        ),
     )
 
 
@@ -48,12 +55,35 @@ def make_payment(
     gateway="cod",
     gateway_order_id=None,
     creation_state="not_started",
+    status="pending",
 ):
     return SimpleNamespace(
         order_id=10,
         payment_gateway=gateway,
         gateway_order_id=gateway_order_id,
         gateway_order_creation_state=creation_state,
+        status=status,
+    )
+
+
+def mock_uncertain_razorpay(monkeypatch):
+    client = SimpleNamespace(
+        order=SimpleNamespace(
+            fetch=lambda order_id: {"status": "created"},
+            payments=lambda order_id: {
+                "items": [
+                    {
+                        "id": "pay_uncertain_test",
+                        "status": "authorized",
+                    }
+                ]
+            },
+        )
+    )
+
+    monkeypatch.setattr(
+        "app.services.payment_service.get_razorpay_client",
+        lambda: client,
     )
 
 
@@ -66,7 +96,7 @@ def make_payment(
     ],
 )
 def test_admin_cannot_cancel_upi_with_started_or_uncertain_creation(
-    creation_state, gateway_order_id
+    creation_state, gateway_order_id, monkeypatch
 ):
     order = make_order(
         payment_method="upi",
@@ -78,6 +108,8 @@ def test_admin_cannot_cancel_upi_with_started_or_uncertain_creation(
         gateway_order_id=gateway_order_id,
         creation_state=creation_state,
     )
+    if gateway_order_id:
+        mock_uncertain_razorpay(monkeypatch)
     db = FakeDB([order, payment])
     admin = SimpleNamespace(id=99)
 
@@ -192,7 +224,7 @@ def test_admin_can_cancel_unstarted_upi_order_and_release_reservation():
     ],
 )
 def test_customer_cannot_cancel_started_or_uncertain_upi_checkout(
-    creation_state, gateway_order_id
+    creation_state, gateway_order_id, monkeypatch
 ):
     order = make_order(
         payment_method="upi",
@@ -204,6 +236,8 @@ def test_customer_cannot_cancel_started_or_uncertain_upi_checkout(
         gateway_order_id=gateway_order_id,
         creation_state=creation_state,
     )
+    if gateway_order_id:
+        mock_uncertain_razorpay(monkeypatch)
     user = SimpleNamespace(
         id=3, first_name="Test", last_name="Customer"
     )

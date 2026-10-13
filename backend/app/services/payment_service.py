@@ -22,6 +22,9 @@ from app.services.notifications import (
     send_low_stock_notification,
     send_out_of_stock_notification,
 )
+from app.services.inventory_service import (
+    release_order_inventory_reservations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +32,8 @@ RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
 LOW_STOCK_THRESHOLD = 5
-
 _REFUNDED_STATUSES = {"refunded", "partially_refunded"}
+
 
 def _notify_payment_succeeded(order: Order, user: User) -> None:
     """Send order confirmation emails after a successful payment commit."""
@@ -100,6 +103,7 @@ def _notify_payment_succeeded(order: Order, user: User) -> None:
             order.id,
         )
 
+
 def _notify_payment_failed_admin(
     order: Order,
     payment: Payment,
@@ -111,6 +115,7 @@ def _notify_payment_failed_admin(
             payment.failure_reason
             or "The payment provider could not complete the payment."
         )
+
         safe_order = escape(order.order_number)
         safe_email = escape(user.email or "Not provided")
         safe_reason = escape(reason)
@@ -133,14 +138,15 @@ def _notify_payment_failed_admin(
                 f"Reason: {reason}"
             ),
         )
+
     except Exception:
         logger.exception(
             "Failed to send payment failure alert for order %s",
             order.id,
         )
 
-def get_razorpay_client():
 
+def get_razorpay_client():
     if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -151,7 +157,6 @@ def get_razorpay_client():
 
 
 def _amount_to_paise(amount) -> int:
-
     return int(
         (Decimal(str(amount)) * Decimal("100")).quantize(
             Decimal("1"),
@@ -167,9 +172,7 @@ def _lock_order_then_payment(
     order_id: int | None = None,
     payment_id: int | None = None,
 ) -> tuple[Order | None, Payment | None]:
-
     if order_id is None:
-
         order_id = db.scalar(
             select(Payment.order_id)
             .join(Order, Payment.order_id == Order.id)
@@ -206,7 +209,9 @@ def _lock_order_then_payment(
 
 
 def _ensure_amount_matches(order: Order, payment: Payment) -> None:
-    if _amount_to_paise(payment.amount) != _amount_to_paise(order.total_amount):
+    if _amount_to_paise(payment.amount) != _amount_to_paise(
+        order.total_amount
+    ):
         logger.error(
             "Payment %s amount does not match order %s total",
             payment.id,
@@ -279,6 +284,7 @@ def create_payment(
                 payment.gateway_order_creation_state = "created"
                 db.commit()
                 db.refresh(payment)
+
             return payment
 
         if payment.gateway_order_creation_state != "not_started":
@@ -315,7 +321,11 @@ def create_payment(
         )
 
         gateway_order_id = razorpay_order.get("id")
-        if not isinstance(gateway_order_id, str) or not gateway_order_id.strip():
+
+        if (
+            not isinstance(gateway_order_id, str)
+            or not gateway_order_id.strip()
+        ):
             raise RuntimeError(
                 "Razorpay order creation response did not contain a valid ID"
             )
@@ -347,7 +357,7 @@ def complete_payment(
     gateway_order_id: str,
     gateway_payment_id: str,
     gateway_signature: str | None,
-    payment_method: str | None,  
+    payment_method: str | None,
     user: User,
     db: Session,
     *,
@@ -419,6 +429,7 @@ def complete_payment(
                         "razorpay_signature": gateway_signature,
                     }
                 )
+
             except Exception as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -427,6 +438,7 @@ def complete_payment(
 
         try:
             gateway_payment = client.payment.fetch(gateway_payment_id)
+
         except Exception as exc:
             logger.exception("Unable to fetch Razorpay payment")
 
@@ -470,7 +482,6 @@ def complete_payment(
 
         _ensure_amount_matches(order, payment)
 
-
         order = db.scalar(
             select(Order)
             .options(selectinload(Order.items))
@@ -494,7 +505,9 @@ def complete_payment(
             if inventory is None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Inventory not found for '{order_item.product_name}'",
+                    detail=(
+                        f"Inventory not found for '{order_item.product_name}'"
+                    ),
                 )
 
             if inventory.reserved_quantity < order_item.quantity:
@@ -526,11 +539,11 @@ def complete_payment(
                 inventory.quantity - inventory.reserved_quantity
             )
 
-
             is_low_stock = (
                 old_available_quantity > LOW_STOCK_THRESHOLD
                 and 0 < new_available_quantity <= LOW_STOCK_THRESHOLD
             )
+
             is_out_of_stock = (
                 old_available_quantity > 0 and new_available_quantity == 0
             )
@@ -591,6 +604,7 @@ def complete_payment(
 
         db.commit()
         db.refresh(payment)
+
         _notify_payment_succeeded(order, user)
 
     except HTTPException:
@@ -688,7 +702,10 @@ def fail_payment(
         client = get_razorpay_client()
 
         try:
-            gateway_result = client.order.payments(payment.gateway_order_id)
+            gateway_result = client.order.payments(
+                payment.gateway_order_id
+            )
+
         except Exception as exc:
             logger.exception("Unable to retrieve Razorpay order payments")
 
@@ -698,6 +715,7 @@ def fail_payment(
             ) from exc
 
         gateway_attempts = gateway_result.get("items", [])
+
         captured_attempts = [
             attempt
             for attempt in gateway_attempts
@@ -707,7 +725,9 @@ def fail_payment(
         if len(captured_attempts) > 1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Multiple captured payments require manual reconciliation.",
+                detail=(
+                    "Multiple captured payments require manual reconciliation."
+                ),
             )
 
         if captured_attempts:
@@ -745,23 +765,10 @@ def fail_payment(
                 ),
             )
 
-        if order.order_status == "cancelled":
-            payment.status = "failed"
-            order.payment_status = "failed"
-            payment.failure_code = "payment_failed"
-            payment.failure_reason = (
-                "Razorpay confirmed that all payment attempts failed."
-            )
+        # All attempts are confirmed failed by Razorpay.
+        # Do not release inventory a second time if the order was cancelled.
+        was_already_cancelled = order.order_status == "cancelled"
 
-            db.commit()
-            db.refresh(payment)
-            if not already_failed:
-                _notify_payment_failed_admin(order, payment, user)
-            return payment
-
-        payment.status = "failed"
-        order.payment_status = "failed"
-        payment.failure_code = "payment_failed"
         latest_attempt = gateway_attempts[-1]
 
         failure_reason = (
@@ -771,15 +778,49 @@ def fail_payment(
             or "Razorpay confirmed that all payment attempts failed."
         )
 
-        payment.failure_code = (
-            latest_attempt.get("error_code") or "payment_failed"
-        )
+        failure_code = latest_attempt.get("error_code") or "payment_failed"
+
+        payment.status = "failed"
+        order.payment_status = "failed"
+        payment.failure_code = failure_code
         payment.failure_reason = str(failure_reason)[:1000]
+
+        if not was_already_cancelled:
+            release_order_inventory_reservations(order.id, db)
+
+            order.order_status = "cancelled"
+
+            db.add(
+                OrderStatusHistory(
+                    order_id=order.id,
+                    status="cancelled",
+                    note=(
+                        "Cancelled after Razorpay confirmed all payment "
+                        "attempts failed. Reserved inventory released."
+                    ),
+                )
+            )
 
         db.commit()
         db.refresh(payment)
+
+        if not was_already_cancelled:
+            db.refresh(order)
+
         if not already_failed:
             _notify_payment_failed_admin(order, payment, user)
+
+        if not was_already_cancelled:
+            from app.services.order_service import (
+                _notify_customer_order_status,
+            )
+
+            _notify_customer_order_status(
+                order,
+                "cancelled",
+                user=user,
+            )
+
         return payment
 
     except HTTPException:
@@ -794,6 +835,7 @@ def fail_payment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to update payment status",
         ) from exc
+
 
 def retry_payment(
     payment_id: int,
@@ -814,7 +856,10 @@ def retry_payment(
                 detail="Payment not found",
             )
 
-        if payment.payment_gateway != "razorpay" or order.payment_method != "upi":
+        if (
+            payment.payment_gateway != "razorpay"
+            or order.payment_method != "upi"
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Retry is only available for Razorpay UPI orders",
@@ -847,23 +892,33 @@ def retry_payment(
         if not payment.gateway_order_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="The Razorpay order is missing; payment cannot be retried safely",
+                detail=(
+                    "The Razorpay order is missing; "
+                    "payment cannot be retried safely"
+                ),
             )
 
         _ensure_amount_matches(order, payment)
+
         client = get_razorpay_client()
 
         try:
             gateway_order = client.order.fetch(payment.gateway_order_id)
             gateway_result = client.order.payments(payment.gateway_order_id)
+
         except Exception as exc:
             logger.exception("Unable to verify Razorpay order before retry")
+
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Unable to verify payment status with Razorpay. Please try again shortly.",
+                detail=(
+                    "Unable to verify payment status with Razorpay. "
+                    "Please try again shortly."
+                ),
             ) from exc
 
         attempts = gateway_result.get("items", [])
+
         captured_attempts = [
             attempt
             for attempt in attempts
@@ -873,11 +928,14 @@ def retry_payment(
         if len(captured_attempts) > 1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Multiple captured payments require manual reconciliation",
+                detail=(
+                    "Multiple captured payments require manual reconciliation"
+                ),
             )
 
         if captured_attempts:
             gateway_payment = captured_attempts[0]
+
             return complete_payment(
                 payment_id=payment.id,
                 gateway_order_id=payment.gateway_order_id,
@@ -894,7 +952,10 @@ def retry_payment(
         if gateway_status == "paid":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Razorpay reports a paid order but no captured payment was returned. Please check payment status again.",
+                detail=(
+                    "Razorpay reports a paid order but no captured payment "
+                    "was returned. Please check payment status again."
+                ),
             )
 
         if gateway_status not in {"created", "attempted"}:
@@ -907,12 +968,22 @@ def retry_payment(
             if gateway_status != "created":
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="Payment attempts could not be verified. Please check status again before retrying.",
+                    detail=(
+                        "Payment attempts could not be verified. "
+                        "Please check status again before retrying."
+                    ),
                 )
-        elif any(attempt.get("status") != "failed" for attempt in attempts):
+
+        elif any(
+            attempt.get("status") != "failed"
+            for attempt in attempts
+        ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="A payment attempt may still be processing. Check payment status before retrying.",
+                detail=(
+                    "A payment attempt may still be processing. "
+                    "Check payment status before retrying."
+                ),
             )
 
         payment.status = "pending"
@@ -922,6 +993,7 @@ def retry_payment(
 
         db.commit()
         db.refresh(payment)
+
         return payment
 
     except HTTPException:
@@ -931,10 +1003,12 @@ def retry_payment(
     except Exception as exc:
         db.rollback()
         logger.exception("Unable to prepare payment retry")
+
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unable to prepare payment retry",
         ) from exc
+
 
 def reconcile_payment_status(
     payment_id: int,
@@ -969,7 +1043,10 @@ def reconcile_payment_status(
         if not payment.gateway_order_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Razorpay order is missing; payment status is unresolved",
+                detail=(
+                    "Razorpay order is missing; "
+                    "payment status is unresolved"
+                ),
             )
 
         client = get_razorpay_client()
@@ -978,8 +1055,10 @@ def reconcile_payment_status(
             gateway_result = client.order.payments(
                 payment.gateway_order_id
             )
+
         except Exception as exc:
             logger.exception("Unable to retrieve Razorpay payment status")
+
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Unable to verify payment status with Razorpay",
@@ -1016,7 +1095,6 @@ def reconcile_payment_status(
 
             return payment
 
-
         gateway_payment = captured_attempts[0]
 
         return complete_payment(
@@ -1037,6 +1115,7 @@ def reconcile_payment_status(
     except Exception as exc:
         db.rollback()
         logger.exception("Unexpected error while reconciling payment status")
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to reconcile payment status",

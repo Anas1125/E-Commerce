@@ -12,12 +12,16 @@ class FakeDB:
     def __init__(self):
         self.commits = 0
         self.rollbacks = 0
+        self.added = []
 
     def commit(self):
         self.commits += 1
 
     def refresh(self, obj):
         pass
+
+    def add(self, obj):
+        self.added.append(obj)
 
     def rollback(self):
         self.rollbacks += 1
@@ -212,7 +216,8 @@ def test_fail_payment_does_not_mark_unresolved_attempt_as_failed(
     assert db.commits == 0
 
 
-def test_confirmed_failure_retains_active_order_for_retry(
+
+def test_confirmed_failure_cancels_active_order_and_releases_reservation(
     monkeypatch,
 ):
     order = make_order(payment_status="pending", order_status="pending")
@@ -226,13 +231,27 @@ def test_confirmed_failure_retains_active_order_for_retry(
         [{"id": "pay_failed_2", "status": "failed"}],
     )
 
+    released_order_ids = []
+
+    monkeypatch.setattr(
+        service,
+        "release_order_inventory_reservations",
+        lambda order_id, db: released_order_ids.append(order_id),
+    )
+    monkeypatch.setattr(
+        "app.services.order_service._notify_customer_order_status",
+        lambda *args, **kwargs: None,
+    )
+
     result = service.fail_payment(payment.id, user, db)
 
     assert result is payment
     assert payment.status == "failed"
     assert order.payment_status == "failed"
-    assert order.order_status == "pending"
+    assert order.order_status == "cancelled"
+    assert released_order_ids == [order.id]
     assert db.commits == 1
+
 
 
 def test_captured_payment_for_cancelled_order_requires_reconciliation(

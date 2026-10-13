@@ -265,6 +265,7 @@ function CheckoutContent() {
   const [step, setStep] = useState(1);
 
   const [paymentPending, setPaymentPending] = useState(null);
+  const [pendingPaymentAmount, setPendingPaymentAmount] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [paymentConfirmedFailed, setPaymentConfirmedFailed] = useState(false);
   const [paymentNeedsSupport, setPaymentNeedsSupport] = useState(false);
@@ -387,7 +388,44 @@ function CheckoutContent() {
 
         const saved = readPendingPayment();
 
+        let savedOrderIsActive = false;
+
         if (
+          saved &&
+          String(saved.userId) === String(user?.id) &&
+          Number.isSafeInteger(Number(saved.orderId)) &&
+          Number(saved.orderId) > 0
+        ) {
+          try {
+            const { data: savedOrderState } = await api.get(
+              `/orders/${Number(saved.orderId)}`
+            );
+
+            savedOrderIsActive =
+              savedOrderState?.order_status === "pending" &&
+              savedOrderState?.payment_status === "pending";
+          } catch (savedOrderError) {
+            if (savedOrderError?.response?.status !== 404) {
+              throw savedOrderError;
+            }
+          }
+
+          if (!savedOrderIsActive) {
+            clearCheckoutAttempt();
+            pendingOrderRef.current = null;
+            pendingPaymentRef.current = null;
+            pendingIdempotencyRef.current = null;
+
+            setPaymentPending(null);
+            setPendingPaymentAmount(null);
+            setPaymentConfirmedFailed(false);
+            setPaymentNeedsSupport(false);
+          }
+        }
+
+
+        if (
+          savedOrderIsActive &&
           saved &&
           String(saved.userId) === String(user?.id) &&
           Number.isSafeInteger(Number(saved.orderId)) &&
@@ -433,86 +471,9 @@ function CheckoutContent() {
           };
           setPaymentMethod("upi");
           setPaymentPending(order.order_number);
+          setPendingPaymentAmount(payment.amount ?? saved.amount ?? null);
           setStep(2);
-        } else {
-            const { data: recovery } = await api.get(
-              "/payments/pending-checkout"
-            );
-
-            if (cancelled) {
-              return;
-            }
-
-            if (recovery?.order_id && recovery?.payment_id) {
-              const order = {
-                id: recovery.order_id,
-                order_number: recovery.order_number,
-                order_status: "pending",
-              };
-
-              const orderKey = `recovered:${order.id}`;
-
-              const payment = {
-                id: recovery.payment_id,
-                gateway_order_id: recovery.gateway_order_id,
-                gateway_order_creation_state:
-                  recovery.gateway_order_creation_state,
-                amount: recovery.amount,
-                currency: recovery.currency,
-                status: recovery.status,
-              };
-
-              pendingOrderRef.current = {
-                key: orderKey,
-                order,
-                idempotencyKey: null,
-              };
-
-              pendingPaymentRef.current = {
-                key: `${order.id}|${orderKey}`,
-                payment,
-              };
-
-              pendingIdempotencyRef.current = {
-                userId: user?.id,
-                orderKey,
-                idempotencyKey: null,
-              };
-
-              savePendingPayment({
-                userId: user?.id,
-                orderId: order.id,
-                orderNumber: order.order_number,
-                paymentId: payment.id,
-                gatewayOrderId: payment.gateway_order_id,
-                gatewayOrderCreationState:
-                  payment.gateway_order_creation_state,
-                amount: payment.amount,
-                currency: payment.currency,
-                paymentStatus: payment.status,
-                orderPaymentStatus: recovery.order_payment_status,
-                orderKey,
-                idempotencyKey: null,
-              });
-
-              setPaymentMethod("upi");
-              setPaymentPending(order.order_number);
-
-              setPaymentConfirmedFailed(
-                payment.status === "failed"
-              );
-
-              setPaymentNeedsSupport(
-                ["refunded", "partially_refunded"].includes(payment.status) ||
-                (
-                  !payment.gateway_order_id &&
-                  payment.gateway_order_creation_state !== "not_started"
-                )
-              );
-
-              setStep(2);
-            }
-          }
+        }
 
         setError("");
       } catch (requestError) {
@@ -817,7 +778,69 @@ function CheckoutContent() {
       // Best effort: the original error is already on screen.
     }
   };
-  
+
+  const handleDismissedPayment = async (order, payment) => {
+    try {
+      const { data: paymentResult } = await api.post("/payments/fail", {
+        payment_id: payment.id,
+      });
+
+      if (paymentResult?.status === "failed") {
+        const orderId = paymentResult.order_id ?? order.id;
+        const { data: latestOrder } = await api.get(
+          `/orders/${orderId}`
+        );
+
+        if (latestOrder?.order_status === "cancelled") {
+          clearCheckoutAttempt();
+
+          confirmRef.current = null;
+          pendingOrderRef.current = null;
+          pendingPaymentRef.current = null;
+          pendingIdempotencyRef.current = null;
+          paymentLockedRef.current = false;
+
+          setPaymentPending(null);
+          setPendingPaymentAmount(null);
+          setPaymentConfirmedFailed(false);
+          setPaymentNeedsSupport(false);
+          setStep(1);
+          setError(
+            "Razorpay confirmed that all payment attempts failed. " +
+            "The order was cancelled and its reserved inventory released. " +
+            "Please place a new order."
+          );
+
+          return;
+        }
+
+        // A failed payment without a confirmed cancellation
+        // must not be offered for retry.
+        setPaymentPending(order.order_number);
+        setPendingPaymentAmount(payment.amount ?? null);
+        setPaymentConfirmedFailed(false);
+        setPaymentNeedsSupport(true);
+        setError(
+          "Payment failed, but order cancellation has not been confirmed. " +
+          "Please don't retry yet. Check the order status or contact support."
+        );
+
+        return;
+      }
+    } catch {
+      // The payment or order status is still uncertain.
+    }
+
+    setPaymentPending(order.order_number);
+    setPendingPaymentAmount(payment.amount ?? null);
+    setPaymentConfirmedFailed(false);
+    setError(
+      "The payment outcome is still unresolved. Please check payment " +
+      "status before taking another payment action."
+    );
+  };
+
+
 
   const confirmPayment = async () => {
     const context = confirmRef.current;
@@ -933,30 +956,37 @@ function CheckoutContent() {
       );
 
       if (paymentResult?.status === "failed") {
+
         const failedOrder =
           context?.order ?? pendingOrderRef.current?.order;
+        const failedOrderId = paymentResult.order_id ?? failedOrder?.id;
 
-        if (pendingOrderRef.current?.key) {
-          pendingPaymentRef.current = {
-            key: `${paymentResult.order_id}|${pendingOrderRef.current.key}`,
-            payment: paymentResult,
-          };
+        if (failedOrderId) {
+          const { data: failedOrderState } = await api.get(
+            `/orders/${failedOrderId}`
+          );
+
+          if (failedOrderState?.order_status === "cancelled") {
+            clearCheckoutAttempt();
+
+            confirmRef.current = null;
+            pendingOrderRef.current = null;
+            pendingPaymentRef.current = null;
+            pendingIdempotencyRef.current = null;
+            paymentLockedRef.current = false;
+
+            setPaymentPending(null);
+            setPaymentConfirmedFailed(false);
+            setPaymentNeedsSupport(false);
+            setStep(1);
+            setError(
+              "Razorpay confirmed that payment failed. The order was cancelled and its reserved inventory released. Please place a new order."
+            );
+
+            return;
+          }
         }
 
-        confirmRef.current = null;
-        paymentLockedRef.current = false;
-
-        setPaymentNeedsSupport(false);
-        setPaymentConfirmedFailed(true);
-        setPaymentPending(
-          failedOrder?.order_number ?? paymentPending
-        );
-
-        setError(
-          "Razorpay confirmed that all payment attempts failed. Your existing order is saved so you can retry without creating another order."
-        );
-
-        return;
       }
 
       if (paymentResult?.status !== "paid") {
@@ -1121,6 +1151,7 @@ function CheckoutContent() {
 
       setPaymentConfirmedFailed(false);
       setPaymentPending(order.order_number);
+      setPendingPaymentAmount(payment.amount ?? null);
 
       let paymentReported = false;
 
@@ -1153,29 +1184,13 @@ function CheckoutContent() {
           ondismiss: async () => {
             if (paymentReported) return;
 
-            let confirmedFailed = false;
-
             try {
-              const { data } = await api.post("/payments/fail", {
-                payment_id: payment.id,
-              });
-              confirmedFailed = data?.status === "failed";
-            } catch {
-              // Keep the existing order when the gateway outcome
-              // cannot be confirmed.
+              await handleDismissedPayment(order, payment);
+            } finally {
+              releaseBusy();
             }
-
-            setPaymentConfirmedFailed(confirmedFailed);
-            setPaymentPending(order.order_number);
-            setError(
-              confirmedFailed
-                ? "Razorpay confirmed the payment attempt failed. You can retry this existing order."
-                : "The payment outcome is still unresolved. Check payment status before trying again."
-            );
-
-            releaseBusy();
           },
-        },
+                  },
       });
 
       razorpay.on("payment.failed", () => {
@@ -1298,7 +1313,7 @@ function CheckoutContent() {
         let data;
         let idempotencyKey;
 
-        try {    
+        try {
 
           if (
             pendingIdempotencyRef.current?.orderKey === orderKey
@@ -1455,46 +1470,16 @@ function CheckoutContent() {
           confirmPayment();
         },
 
-        
+
         modal: {
           ondismiss: async () => {
-            if (paymentReported) {
-              return;
-            }
-
-            let confirmedFailed = false;
+            if (paymentReported) return;
 
             try {
-              const { data: failedPayment } = await api.post(
-                "/payments/fail",
-                {
-                  payment_id: payment.id,
-                },
-              );
-
-              confirmedFailed = failedPayment?.status === "failed";
-            } catch {
-              // The server may be unable to confirm failure yet.
-              // Keep the existing order and payment for a safe retry.
+              await handleDismissedPayment(order, payment);
+            } finally {
+              releaseBusy();
             }
-
-            if (confirmedFailed) {
-              setPaymentConfirmedFailed(true);
-              setPaymentPending(order.order_number);
-
-              setError(
-                "Razorpay confirmed that all payment attempts failed. Your existing order is saved so you can retry payment safely."
-              );
-            } else {
-              setPaymentConfirmedFailed(false);
-              setPaymentPending(order.order_number);
-
-              setError(
-                "Payment window closed. The final status is not confirmed yet. Your existing order is saved. Check its status before trying again."
-              );
-            }
-
-            releaseBusy();
           },
         },
 
@@ -2465,6 +2450,13 @@ function CheckoutContent() {
                           ? "The payment attempt failed. Your existing order is saved for a safe retry."
                           : "We're still confirming the payment. Please don't pay again yet."}
                     </p>
+
+                    {pendingPaymentAmount != null && (
+                      <p className="mt-2 text-xs leading-5 text-[#7A5200]">
+                        Saved order amount: {formatINR(pendingPaymentAmount)}.
+                        This may differ from your current cart total.
+                      </p>
+                    )}
 
                     <button
                       type="button"

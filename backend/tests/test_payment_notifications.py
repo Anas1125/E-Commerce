@@ -44,12 +44,24 @@ def make_payment_objects():
 
 def test_failed_payment_notifies_admin_only_once(monkeypatch):
     order, payment, user = make_payment_objects()
+    payment.payment_gateway = "razorpay"
     db = Mock()
 
     monkeypatch.setattr(
         service,
         "_lock_order_then_payment",
         lambda db, **kwargs: (order, payment),
+    )
+
+    monkeypatch.setattr(
+        service,
+        "release_order_inventory_reservations",
+        lambda order_id, db: None,
+    )
+
+    monkeypatch.setattr(
+        "app.services.order_service._notify_customer_order_status",
+        lambda *args, **kwargs: None,
     )
 
     gateway = SimpleNamespace(

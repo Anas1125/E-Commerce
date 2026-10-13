@@ -901,6 +901,164 @@ def create_order(
         raise
 
 
+def _verify_upi_cancellation_status(
+    order: Order,
+    payment: Payment | None,
+    customer: User | None,
+    db: Session,
+) -> str:
+    """Verify an unpaid UPI order before allowing cancellation."""
+
+    from app.services.payment_service import (
+        complete_payment,
+        get_razorpay_client,
+    )
+
+    if payment is None or payment.payment_gateway != "razorpay":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The payment record is missing or cannot be verified.",
+        )
+
+    if order.payment_status == "paid":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This order is paid. Use the refund process instead.",
+        )
+
+    if payment.status in {"paid", "refunded", "partially_refunded"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This payment cannot be cancelled as unpaid. "
+                "Reconcile it or use the refund process."
+            ),
+        )
+
+    # The payment setup never began, so no Razorpay order exists.
+    if not payment.gateway_order_id:
+        if payment.gateway_order_creation_state == "not_started":
+            payment.status = "failed"
+            order.payment_status = "failed"
+            payment.failure_code = "cancelled_before_payment"
+            payment.failure_reason = (
+                "Order cancelled before Razorpay payment setup began."
+            )
+            return "not_attempted"
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Payment setup is uncertain. Verify its status "
+                "before cancelling this order."
+            ),
+        )
+
+    try:
+        client = get_razorpay_client()
+        gateway_order = client.order.fetch(payment.gateway_order_id)
+        gateway_result = client.order.payments(payment.gateway_order_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Unable to verify Razorpay order %s before cancellation",
+            order.order_number,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Unable to verify the payment with Razorpay. "
+                "The order was not cancelled."
+            ),
+        ) from exc
+
+    attempts = gateway_result.get("items")
+
+    if not isinstance(attempts, list):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Razorpay returned an invalid payment-attempt response.",
+        )
+
+    captured_attempts = [
+        attempt
+        for attempt in attempts
+        if attempt.get("status") == "captured" and attempt.get("id")
+    ]
+
+    if len(captured_attempts) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Multiple captured payments require manual reconciliation. "
+                "The order was not cancelled."
+            ),
+        )
+
+    if captured_attempts:
+        if customer is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The customer record is unavailable for reconciliation.",
+            )
+
+        captured = captured_attempts[0]
+
+        # Verify and record the captured payment before refusing cancellation.
+        complete_payment(
+            payment_id=payment.id,
+            gateway_order_id=payment.gateway_order_id,
+            gateway_payment_id=captured["id"],
+            gateway_signature=None,
+            payment_method=captured.get("method"),
+            user=customer,
+            db=db,
+            verify_signature=False,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Razorpay confirmed a captured payment and the order "
+                "has been reconciled. Use the refund process if needed."
+            ),
+        )
+
+    # No captured payment; allow cancellation only when gateway evidence
+    # confirms either no attempts or that every attempt failed.
+    if attempts and all(
+        attempt.get("status") == "failed" for attempt in attempts
+    ):
+        payment.status = "failed"
+        order.payment_status = "failed"
+        payment.failure_code = (
+            attempts[-1].get("error_code") or "payment_failed"
+        )
+        payment.failure_reason = (
+            attempts[-1].get("error_description")
+            or attempts[-1].get("error_reason")
+            or "Razorpay confirmed all payment attempts failed."
+        )[:1000]
+        return "failed"
+
+    if not attempts and gateway_order.get("status") == "created":
+        payment.status = "failed"
+        order.payment_status = "failed"
+        payment.failure_code = "cancelled_before_payment"
+        payment.failure_reason = (
+            "Razorpay confirmed that no payment attempts existed."
+        )
+        return "not_attempted"
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "Razorpay has not confirmed a safe cancellation. "
+            "The order and inventory have not been cancelled."
+        ),
+    )
+
 
 def cancel_order(
     order_id: int,
@@ -944,19 +1102,12 @@ def cancel_order(
             detail="Paid orders require a refund process",
         )
 
-    if order.payment_method == "upi" and (
-        payment is None
-        or payment.payment_gateway != "razorpay"
-        or payment.gateway_order_id is not None
-        or payment.gateway_order_creation_state != "not_started"
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "This UPI checkout has started or its payment status "
-                "is uncertain. Reconcile the payment before cancelling "
-                "the order."
-            ),
+    if order.payment_method == "upi":
+        _verify_upi_cancellation_status(
+            order=order,
+            payment=payment,
+            customer=user,
+            db=db,
         )
 
     for order_item in order.items:
@@ -1166,20 +1317,14 @@ def update_order_status(
         )
 
     if new_status == "cancelled" and order.payment_method == "upi":
-        if (
-            payment is None
-            or payment.payment_gateway != "razorpay"
-            or payment.gateway_order_id is not None
-            or payment.gateway_order_creation_state != "not_started"
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "This UPI checkout has started or its payment status "
-                    "is uncertain. Reconcile the payment before cancelling "
-                    "the order."
-                ),
-            )
+        _verify_upi_cancellation_status(
+            order=order,
+            payment=payment,
+            customer=order.user,
+            db=db,
+        )
+
+
 
     if new_status == "delivered":
 
