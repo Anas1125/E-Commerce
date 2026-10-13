@@ -10,32 +10,33 @@ from pydantic import (
 )
 
 _PHONE_SEPARATORS = re.compile(r"[\s\-().]")
-_PHONE_PATTERN = re.compile(r"\+?\d{7,15}") 
+_PHONE_PATTERN = re.compile(r"\+?\d{7,15}")
 
 
 def normalize_phone(value: str) -> str:
     cleaned = _PHONE_SEPARATORS.sub("", value)
 
     if not _PHONE_PATTERN.fullmatch(cleaned):
-        raise ValueError("Enter a valid phone number (7-15 digits, optional leading +)")
+        raise ValueError(
+            "Enter a valid phone number (7-15 digits, optional leading +)"
+        )
 
     return cleaned
 
 
 class UserCreate(BaseModel):
-    first_name: str = Field(min_length=1, max_length=100, strip_whitespace=True)
-    last_name: str | None = Field(
-        default=None,
-        max_length=100,
-        strip_whitespace=True,
-    )
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
     email: EmailStr
-    phone_number: str = Field(
-        min_length=7,
-        max_length=20,
-        strip_whitespace=True,
-    )
+    phone_number: str = Field(min_length=7, max_length=20)
     password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("first_name", "last_name", "phone_number", mode="before")
+    @classmethod
+    def trim_whitespace(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @field_validator("last_name")
     @classmethod
@@ -66,8 +67,15 @@ class UserResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    email: str = Field(min_length=3, max_length=254, strip_whitespace=True)
+    email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def trim_email(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @field_validator("email")
     @classmethod
@@ -81,8 +89,14 @@ class UserContactUpdate(BaseModel):
         default=None,
         min_length=7,
         max_length=20,
-        strip_whitespace=True,
     )
+
+    @field_validator("phone_number", mode="before")
+    @classmethod
+    def trim_phone_number(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
     @field_validator("email")
     @classmethod

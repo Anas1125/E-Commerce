@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from html import escape
 
 import razorpay
 from fastapi import HTTPException, status
@@ -16,6 +17,8 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.user import User
 from app.services.notifications import (
+    send_admin_notification,
+    send_customer_notification,
     send_low_stock_notification,
     send_out_of_stock_notification,
 )
@@ -29,6 +32,112 @@ LOW_STOCK_THRESHOLD = 5
 
 _REFUNDED_STATUSES = {"refunded", "partially_refunded"}
 
+def _notify_payment_succeeded(order: Order, user: User) -> None:
+    """Send order confirmation emails after a successful payment commit."""
+    try:
+        order_number = escape(order.order_number)
+        customer_name = escape(
+            " ".join(filter(None, [user.first_name, user.last_name]))
+            or "Customer"
+        )
+        amount = f"₹{order.total_amount:,.2f}"
+
+        items_html = "".join(
+            f"""
+            <tr>
+                <td>{escape(item.product_name)}</td>
+                <td>{item.quantity}</td>
+                <td>₹{item.final_price:,.2f}</td>
+            </tr>
+            """
+            for item in order.items
+        )
+
+        send_admin_notification(
+            subject=f"New paid TerraLens order — {order.order_number}",
+            html=f"""
+                <h2>New paid order</h2>
+                <p><b>Order:</b> {order_number}</p>
+                <p><b>Customer:</b> {customer_name}</p>
+                <p><b>Email:</b> {escape(user.email)}</p>
+                <p><b>Total:</b> {amount}</p>
+                <table>
+                    <thead>
+                        <tr><th>Product</th><th>Qty</th><th>Amount</th></tr>
+                    </thead>
+                    <tbody>{items_html}</tbody>
+                </table>
+            """,
+            text=(
+                f"New paid order: {order.order_number}\n"
+                f"Customer: {user.email}\nTotal: {amount}"
+            ),
+        )
+
+        recipient = (order.contact_email or user.email or "").strip()
+
+        send_customer_notification(
+            email=recipient,
+            subject=f"Order confirmed — {order.order_number}",
+            html=f"""
+                <h2>Thank you for your order, {customer_name}!</h2>
+                <p>Your payment has been verified successfully.</p>
+                <p><b>Order:</b> {order_number}</p>
+                <p><b>Total paid:</b> {amount}</p>
+                <p>We'll keep you updated as your order progresses.</p>
+            """,
+            text=(
+                f"Thank you for your order, {user.first_name}!\n"
+                f"Order: {order.order_number}\n"
+                f"Total paid: {amount}\n"
+                "Your payment has been verified successfully."
+            ),
+        )
+
+    except Exception:
+        logger.exception(
+            "Order confirmation notification failed for order %s",
+            order.id,
+        )
+
+def _notify_payment_failed_admin(
+    order: Order,
+    payment: Payment,
+    user: User,
+) -> None:
+    """Alert the admin about a verified failed payment attempt."""
+    try:
+        reason = (
+            payment.failure_reason
+            or "The payment provider could not complete the payment."
+        )
+        safe_order = escape(order.order_number)
+        safe_email = escape(user.email or "Not provided")
+        safe_reason = escape(reason)
+        amount = f"₹{order.total_amount:,.2f}"
+
+        send_admin_notification(
+            subject=f"Payment attempt failed — {order.order_number}",
+            html=f"""
+                <h2>Payment attempt failed</h2>
+                <p><b>Order:</b> {safe_order}</p>
+                <p><b>Customer:</b> {safe_email}</p>
+                <p><b>Amount:</b> {amount}</p>
+                <p><b>Reason reported:</b> {safe_reason}</p>
+                <p>The payment status was verified with Razorpay.</p>
+            """,
+            text=(
+                f"Payment attempt failed: {order.order_number}\n"
+                f"Customer: {user.email or 'Not provided'}\n"
+                f"Amount: {amount}\n"
+                f"Reason: {reason}"
+            ),
+        )
+    except Exception:
+        logger.exception(
+            "Failed to send payment failure alert for order %s",
+            order.id,
+        )
 
 def get_razorpay_client():
 
@@ -165,8 +274,6 @@ def create_payment(
 
         _ensure_amount_matches(order, payment)
 
-        # If an ID already exists, the provider order was created.
-        # Repair the marker if an older application instance left it stale.
         if payment.gateway_order_id:
             if payment.gateway_order_creation_state != "created":
                 payment.gateway_order_creation_state = "created"
@@ -174,8 +281,6 @@ def create_payment(
                 db.refresh(payment)
             return payment
 
-        # Never create another provider order if a previous attempt may
-        # have reached Razorpay but its result was not saved locally.
         if payment.gateway_order_creation_state != "not_started":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -486,6 +591,7 @@ def complete_payment(
 
         db.commit()
         db.refresh(payment)
+        _notify_payment_succeeded(order, user)
 
     except HTTPException:
         db.rollback()
@@ -543,6 +649,11 @@ def fail_payment(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Payment not found",
             )
+
+        already_failed = (
+            payment.status == "failed"
+            and order.payment_status == "failed"
+        )
 
         if payment.status == "paid":
             raise HTTPException(
@@ -644,18 +755,31 @@ def fail_payment(
 
             db.commit()
             db.refresh(payment)
+            if not already_failed:
+                _notify_payment_failed_admin(order, payment, user)
             return payment
 
         payment.status = "failed"
         order.payment_status = "failed"
         payment.failure_code = "payment_failed"
-        payment.failure_reason = (
-            "Razorpay confirmed that all payment attempts failed. "
-            "The order is retained for a safe payment retry."
+        latest_attempt = gateway_attempts[-1]
+
+        failure_reason = (
+            latest_attempt.get("error_description")
+            or latest_attempt.get("error_reason")
+            or latest_attempt.get("error_code")
+            or "Razorpay confirmed that all payment attempts failed."
         )
+
+        payment.failure_code = (
+            latest_attempt.get("error_code") or "payment_failed"
+        )
+        payment.failure_reason = str(failure_reason)[:1000]
 
         db.commit()
         db.refresh(payment)
+        if not already_failed:
+            _notify_payment_failed_admin(order, payment, user)
         return payment
 
     except HTTPException:

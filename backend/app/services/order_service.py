@@ -88,9 +88,7 @@ def create_order(
     order_data: OrderCreate,
     db: Session,
 ) -> Order:
-    # Serialize idempotent order creation for this customer. A concurrent
-    # retry waits for the first transaction to finish, then checks for the
-    # existing order before validating stock or creating another order.
+
     if order_data.idempotency_key:
         db.scalar(
             select(User.id)
@@ -313,7 +311,6 @@ def create_order(
             user_id=user.id,
             shipping_address_id=address.id,
 
-            # Shipping address snapshot
             shipping_address_line1=address.address_line1,
             shipping_address_line2=address.address_line2,
             shipping_city=address.city,
@@ -366,8 +363,6 @@ def create_order(
 
             db.add(coupon_usage)
 
-        # Store inventory alerts and send them only
-        # after the order has been successfully committed.
         inventory_alerts = []
 
         for item in order_items:
@@ -412,9 +407,6 @@ def create_order(
                 - inventory.reserved_quantity
             )
 
-            # COD orders reserve inventory immediately.
-            # Trigger inventory alerts based on the new
-            # available quantity after the reservation.
             if order_data.payment_method == "cod":
 
                 if (
@@ -468,8 +460,6 @@ def create_order(
         db.commit()
         db.refresh(order)
 
-        # Send inventory alerts only after the database
-        # transaction has successfully committed.
         for alert in inventory_alerts:
             if alert["type"] == "low_stock":
                 send_low_stock_notification(
@@ -486,7 +476,6 @@ def create_order(
                     reserved_quantity=alert["reserved_quantity"],
                 )
 
-        # Send admin notification after the order is successfully created.
         items_html = ""
 
         for item in order_items:
@@ -697,7 +686,6 @@ def create_order(
     except IntegrityError:
         db.rollback()
 
-        # Another simultaneous request may have created the same order.
         existing_order = _get_existing_idempotent_order(
             user=user,
             order_data=order_data,
@@ -989,8 +977,6 @@ def update_order_status(
                 ),
             )
 
-
-    # COD payment is collected when the order is delivered.
     if new_status == "delivered":
 
         if order.payment_method == "cod":
@@ -1001,14 +987,11 @@ def update_order_status(
                     detail="COD payment record not found",
                 )
 
-            # Mark COD payment as paid.
             if order.payment.status != "paid":
                 order.payment.status = "paid"
 
             order.payment_status = "paid"
 
-            # COD inventory is finalized only when the order
-            # is actually delivered.
             for order_item in order.items:
 
                 inventory = db.scalar(
@@ -1050,17 +1033,10 @@ def update_order_status(
                         ),
                     )
 
-                # The COD items have now physically left
-                # the warehouse.
                 inventory.quantity -= order_item.quantity
-
-                # The reservation is no longer needed because
-                # the order has been delivered.
                 inventory.reserved_quantity -= order_item.quantity
 
         else:
-            # UPI inventory was already finalized when payment
-            # succeeded. Do NOT change inventory again here.
             if order.payment_status != "paid":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1072,7 +1048,6 @@ def update_order_status(
     if new_status == "cancelled":
         locked_inventory = {}
 
-        # Lock and validate every inventory row before changing any.
         for item in sorted(order.items, key=lambda item: item.product_id):
             inventory = db.scalar(
                 select(Inventory)
@@ -1094,7 +1069,6 @@ def update_order_status(
 
             locked_inventory[item.product_id] = inventory
 
-        # Release reservations only after all rows are validated.
         for item in order.items:
             locked_inventory[item.product_id].reserved_quantity -= (
                 item.quantity

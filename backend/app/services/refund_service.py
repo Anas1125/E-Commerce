@@ -290,9 +290,6 @@ def request_refund(
 
                 selected.append((order_item, selection.quantity))
 
-        # OrderItem.final_price includes product offers but excludes
-        # the order-level coupon. Allocate the coupon proportionally
-        # across the order's items before calculating partial refunds.
         offer_discount_total = sum(
             (item.discount_amount for item in order_items),
             Decimal("0.00"),
@@ -342,7 +339,6 @@ def request_refund(
         item_amounts: dict[int, Decimal] = {}
 
         if full_order:
-            # A full-order refund includes the order's shipping fee.
             refund_amount = order.total_amount
             net_total = sum(line_net.values(), Decimal("0.00"))
             weighted_items = [
@@ -371,8 +367,6 @@ def request_refund(
                 item_amounts[item.id] = share
                 remaining_amount -= share
         else:
-            # Selected-item refunds exclude shipping. For partial
-            # quantities, refund a proportional share of the line.
             for order_item, quantity in selected:
                 amount = (
                     line_net[order_item.id]
