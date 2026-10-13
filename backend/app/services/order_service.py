@@ -954,17 +954,59 @@ def _verify_upi_cancellation_status(
             ),
         )
 
+    
     try:
         client = get_razorpay_client()
         gateway_order = client.order.fetch(payment.gateway_order_id)
-        gateway_result = client.order.payments(payment.gateway_order_id)
+
     except HTTPException:
         raise
+
     except Exception as exc:
+        error_message = str(exc).lower()
+
+        razorpay_order_missing = (
+            type(exc).__name__ == "BadRequestError"
+            and "id provided does not exist" in error_message
+        )
+
+        if razorpay_order_missing:
+            payment_reference_exists = (
+                bool(getattr(payment, "gateway_payment_id", None))
+                or bool(getattr(payment, "paid_at", None))
+                or payment.status in {
+                    "authorized",
+                    "paid",
+                    "refunded",
+                    "partially_refunded",
+                }
+            )
+
+            if payment_reference_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "The Razorpay order is missing, but the local "
+                        "payment record needs reconciliation. "
+                        "The order was not cancelled."
+                    ),
+                ) from exc
+
+            payment.status = "failed"
+            order.payment_status = "failed"
+            payment.failure_code = "gateway_order_not_found"
+            payment.failure_reason = (
+                "The referenced Razorpay order does not exist "
+                "in the configured gateway account."
+            )
+
+            return "not_found"
+
         logger.exception(
             "Unable to verify Razorpay order %s before cancellation",
             order.order_number,
         )
+
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=(
@@ -972,6 +1014,24 @@ def _verify_upi_cancellation_status(
                 "The order was not cancelled."
             ),
         ) from exc
+
+    try:
+        gateway_result = client.order.payments(
+            payment.gateway_order_id
+        )
+    except Exception as exc:
+        logger.exception(
+            "Unable to retrieve Razorpay payment attempts for order %s",
+            order.order_number,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Unable to verify payment attempts with Razorpay. "
+                "The order was not cancelled."
+            ),
+        ) from exc
+
 
     attempts = gateway_result.get("items")
 

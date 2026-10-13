@@ -266,6 +266,9 @@ function CheckoutContent() {
 
   const [paymentPending, setPaymentPending] = useState(null);
   const [pendingPaymentAmount, setPendingPaymentAmount] = useState(null);
+  const [canCancelPendingCheckout, setCanCancelPendingCheckout] = useState(false);
+  const [cancellingPendingCheckout, setCancellingPendingCheckout] = useState(false);
+  const [notice, setNotice] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [paymentConfirmedFailed, setPaymentConfirmedFailed] = useState(false);
   const [paymentNeedsSupport, setPaymentNeedsSupport] = useState(false);
@@ -776,6 +779,84 @@ function CheckoutContent() {
       }
     } catch {
       // Best effort: the original error is already on screen.
+    }
+  };
+
+  const cancelPendingCheckout = async () => {
+    if (
+      cancellingPendingCheckout ||
+      busyRef.current ||
+      confirmingRef.current
+    ) {
+      return;
+    }
+
+    setCancellingPendingCheckout(true);
+    setError("");
+    setNotice("");
+
+    try {
+      let orderId = pendingOrderRef.current?.order?.id;
+
+      // The previous checkout may exist on the server even if
+      // its browser session storage has been cleared.
+      if (!orderId) {
+        const { data } = await api.get("/payments/pending-checkout");
+        orderId = data?.order_id;
+      }
+
+      if (!orderId) {
+        throw userFacingError(
+          "No unresolved checkout was found. Refresh Checkout and try again."
+        );
+      }
+
+      const { data: cancelledOrder } = await api.post(
+        `/orders/${orderId}/cancel`
+      );
+
+      if (cancelledOrder?.order_status !== "cancelled") {
+        throw userFacingError(
+          "The server did not confirm cancellation. Your stock has not been released."
+        );
+      }
+
+      // Only clear browser state after the server confirms cancellation.
+      clearCheckoutAttempt();
+
+      confirmRef.current = null;
+      pendingOrderRef.current = null;
+      pendingPaymentRef.current = null;
+      pendingIdempotencyRef.current = null;
+      paymentLockedRef.current = false;
+
+      setPaymentPending(null);
+      setPendingPaymentAmount(null);
+      setPaymentConfirmedFailed(false);
+      setPaymentNeedsSupport(false);
+      setCanCancelPendingCheckout(false);
+      setStep(2);
+
+      setNotice(
+        `Order ${cancelledOrder.order_number} was cancelled. You can now place a new order.`
+      );
+
+      await refreshCart();
+
+      try {
+        await refreshCounts();
+      } catch {
+        // Cancellation has already succeeded.
+      }
+    } catch (requestError) {
+      setError(
+        getErrorMessage(
+          requestError,
+          "Unable to safely cancel the old checkout. The order and reserved stock have not been released."
+        )
+      );
+    } finally {
+      setCancellingPendingCheckout(false);
     }
   };
 
@@ -1495,13 +1576,36 @@ function CheckoutContent() {
 
       razorpay.open();
     } catch (requestError) {
+      const detail = requestError?.response?.data?.detail;
+
+      if (
+        paymentMethod === "upi" &&
+        requestError?.response?.status === 409 &&
+        typeof detail === "string" &&
+        detail.toLowerCase().includes(
+          "unresolved upi checkout already exists"
+        )
+      ) {
+        try {
+          const { data: pendingCheckout } = await api.get(
+            "/payments/pending-checkout"
+          );
+
+          setCanCancelPendingCheckout(
+            Boolean(pendingCheckout?.order_id)
+          );
+        } catch {
+          setCanCancelPendingCheckout(false);
+        }
+      }
+
       setError(
         requestError.isUserFacing
           ? requestError.message
           : getErrorMessage(
               requestError,
-              "We couldn't place your order. Please try again.",
-            ),
+              "We couldn't place your order. Please try again."
+            )
       );
 
       releaseBusy();
@@ -1708,6 +1812,34 @@ function CheckoutContent() {
               className="mb-5 rounded-md border border-[#F2C7C2] bg-[#FFF1EF] px-4 py-3 text-sm text-[#C62828]"
             >
               {error}
+            </div>
+          )}
+          {notice && (
+            <div
+              role="status"
+              className="mb-5 rounded-md border border-[#C8E6C9] bg-[#F1F8F2] px-4 py-3 text-sm text-[#2E7D32]"
+            >
+              {notice}
+            </div>
+          )}
+
+          {canCancelPendingCheckout && !paymentPending && (
+            <div className="mb-5 rounded-md border border-[#FFE0A3] bg-[#FFF8E6] p-4">
+              <p className="text-sm text-[#7A5200]">
+                An older UPI checkout is blocking your new order. You can
+                request cancellation of that checkout below.
+              </p>
+
+              <button
+                type="button"
+                onClick={cancelPendingCheckout}
+                disabled={cancellingPendingCheckout || busy || confirming}
+                className="mt-3 w-full rounded-md border border-[#2874F0] px-5 py-3 text-sm font-bold text-[#2874F0] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {cancellingPendingCheckout
+                  ? "Verifying payment and cancelling..."
+                  : "Cancel previous checkout"}
+              </button>
             </div>
           )}
 
@@ -2474,6 +2606,17 @@ function CheckoutContent() {
                       className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#2874F0] px-5 py-3 text-sm font-bold !text-white transition hover:bg-[#1f65d6] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {confirming ? "Checking..." : "Check payment status"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={cancelPendingCheckout}
+                      disabled={cancellingPendingCheckout || busy || confirming}
+                      className="mt-3 flex w-full cursor-pointer items-center justify-center rounded-md border border-[#C62828] px-5 py-3 text-sm font-bold text-[#C62828] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {cancellingPendingCheckout
+                        ? "Verifying payment and cancelling..."
+                        : "Cancel this checkout"}
                     </button>
 
                       {paymentNeedsSupport && (
