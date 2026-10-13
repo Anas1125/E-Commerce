@@ -798,7 +798,11 @@ def complete_refund(
 
         customer = order.user
 
-        customer_email = customer.email or ""
+        customer_email = (
+            getattr(order, "contact_email", None)
+            or customer.email
+            or ""
+        ).strip()
         customer_name = (
             " ".join(
                 part
