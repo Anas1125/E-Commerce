@@ -266,6 +266,8 @@ function CheckoutContent() {
 
   const [paymentPending, setPaymentPending] = useState(null);
   const [pendingPaymentAmount, setPendingPaymentAmount] = useState(null);
+  const [pendingCancellationSafe, setPendingCancellationSafe] =
+  useState(false);
   const [canCancelPendingCheckout, setCanCancelPendingCheckout] = useState(false);
   const [cancellingPendingCheckout, setCancellingPendingCheckout] = useState(false);
   const [notice, setNotice] = useState("");
@@ -792,6 +794,7 @@ function CheckoutContent() {
     }
 
     setCancellingPendingCheckout(true);
+    setPendingCancellationSafe(false);
     setError("");
     setNotice("");
 
@@ -1036,6 +1039,9 @@ function CheckoutContent() {
         { payment_id: payment.id }
       );
 
+      const cancellationSafe = paymentResult?.can_cancel === true;
+      setPendingCancellationSafe(cancellationSafe);
+
       if (paymentResult?.status === "failed") {
 
         const failedOrder =
@@ -1067,17 +1073,36 @@ function CheckoutContent() {
             return;
           }
         }
+        setPaymentConfirmedFailed(cancellationSafe);
+        setPaymentNeedsSupport(false);
+
+        if (cancellationSafe) {
+          setError("");
+          setNotice(
+            "Razorpay confirmed the payment failure. You can retry payment or cancel this checkout."
+          );
+        } else {
+          setError(
+            "The payment is marked failed, but Razorpay has not confirmed that cancellation is safe yet. Check the status again shortly. Do not pay again yet."
+          );
+        }
+
+        return;
 
       }
 
       if (paymentResult?.status !== "paid") {
         setPaymentConfirmedFailed(false);
         setPaymentNeedsSupport(false);
+
         setError(
-          "Razorpay has not confirmed a captured payment yet. Your order remains unresolved. Please don't pay again, try checking again shortly."
+          cancellationSafe
+            ? "No payment attempt is unresolved. You can safely cancel this checkout."
+            : "Your payment is still unresolved. Cancellation is disabled until Razorpay confirms it is safe. Please don't pay again yet."
         );
+
         return;
-      }
+}
 
       const { data: confirmedOrder } = await api.get(
         `/orders/${paymentResult.order_id}`
@@ -1112,6 +1137,7 @@ function CheckoutContent() {
       });
     } catch (requestError) {
       setPaymentConfirmedFailed(false);
+      setPendingCancellationSafe(false);
       setPaymentNeedsSupport(
         requestError?.response?.status === 409 ||
         /order still needs confirmation/i.test(
@@ -2590,10 +2616,32 @@ function CheckoutContent() {
                       </p>
                     )}
 
+                    {paymentConfirmedFailed &&
+                      pendingCancellationSafe &&
+                      !paymentNeedsSupport &&
+                      !busy &&
+                      !confirming &&
+                      !cancellingPendingCheckout && (
+                        <div className="mt-3 rounded-md border border-[#BBDEFB] bg-[#F1F8FF] p-3">
+                          <p className="text-sm font-semibold text-[#174EA6]">
+                            What would you like to do next?
+                          </p>
+                          <p className="mt-1 text-sm leading-5 text-[#174EA6]">
+                            Your previous payment attempt failed. You can try the UPI payment
+                            again or cancel this checkout and place a new order.
+                          </p>
+                        </div>
+                      )}
+
                     <button
                       type="button"
                       onClick={retryPendingPayment}
-                      disabled={busy || confirming || paymentNeedsSupport}
+                      disabled={
+                        busy ||
+                        confirming ||
+                        paymentNeedsSupport ||
+                        !paymentConfirmedFailed
+                      }
                       className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-[#2874F0] px-5 py-3 text-sm font-bold text-[#2874F0] transition hover:bg-[#F5F9FF] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {busy ? "Opening Razorpay..." : "Retry UPI Payment"}
@@ -2611,7 +2659,13 @@ function CheckoutContent() {
                     <button
                       type="button"
                       onClick={cancelPendingCheckout}
-                      disabled={cancellingPendingCheckout || busy || confirming}
+                      disabled={
+                        cancellingPendingCheckout ||
+                        busy ||
+                        confirming ||
+                        paymentNeedsSupport ||
+                        !pendingCancellationSafe
+                      }
                       className="mt-3 flex w-full cursor-pointer items-center justify-center rounded-md border border-[#C62828] px-5 py-3 text-sm font-bold text-[#C62828] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {cancellingPendingCheckout

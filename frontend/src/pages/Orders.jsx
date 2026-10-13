@@ -1564,7 +1564,7 @@ if (
                 maxLength={MAX_REFUND_PROBLEM_LENGTH}
                 disabled={refundSubmitting}
                 placeholder="Tell us what happened with your order..."
-                className="w-full resize-none rounded-md border border-[#D0D0D0] px-3 py-2.5 text-sm outline-none focus:border-[#C62828] focus:ring-1 focus:ring-[#C62828] disabled:bg-[#F5F5F5]"
+                className="w-full rounded-md border border-[#D0D0D0] px-3 py-2.5 text-sm outline-none transition-colors focus:border-[#2874F0] focus:ring-2 focus:ring-[#2874F0]/20 disabled:bg-[#F5F5F5]"
               />
             </div>
 
@@ -1588,7 +1588,7 @@ if (
                 maxLength={MAX_REFUND_FEEDBACK_LENGTH}
                 disabled={refundSubmitting}
                 placeholder="Your feedback helps us improve our service..."
-                className="w-full resize-none rounded-md border border-[#D0D0D0] px-3 py-2.5 text-sm outline-none focus:border-[#C62828] focus:ring-1 focus:ring-[#C62828] disabled:bg-[#F5F5F5]"
+                className="w-full rounded-md border border-[#D0D0D0] px-3 py-2.5 text-sm outline-none transition-colors focus:border-[#2874F0] focus:ring-2 focus:ring-[#2874F0]/20 disabled:bg-[#F5F5F5]"
               />
             </div>
 

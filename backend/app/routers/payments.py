@@ -121,27 +121,27 @@ def fail_order_payment(
         db=db,
     )
 
-@router.post("/status", response_model=PaymentResponse)
+class PaymentStatusResponse(PaymentResponse):
+    can_cancel: bool = False
+
+@router.post("/status", response_model=PaymentStatusResponse)
 def check_order_payment_status(
     payment_data: PaymentStatusCheck,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return reconcile_payment_status(
+    payment = reconcile_payment_status(
         payment_id=payment_data.payment_id,
         user=current_user,
         db=db,
     )
 
+    response = PaymentStatusResponse.model_validate(payment)
 
-@router.post("/retry", response_model=PaymentResponse)
-def retry_order_payment(
-    payment_data: PaymentStatusCheck,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    return retry_payment(
-        payment_id=payment_data.payment_id,
-        user=current_user,
-        db=db,
+    return response.model_copy(
+        update={
+            "can_cancel": bool(
+                getattr(payment, "_cancellation_safe", False)
+            )
+        }
     )

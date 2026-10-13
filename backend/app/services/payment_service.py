@@ -716,6 +716,8 @@ def fail_payment(
 
         gateway_attempts = gateway_result.get("items", [])
 
+        setattr(payment, "_cancellation_safe", False)
+
         captured_attempts = [
             attempt
             for attempt in gateway_attempts
@@ -1087,12 +1089,31 @@ def reconcile_payment_status(
                 attempt.get("status") == "failed"
                 for attempt in attempts
             ):
-                return fail_payment(
+                failed_payment = fail_payment(
                     payment_id=payment.id,
                     user=user,
                     db=db,
                 )
+                setattr(failed_payment, "_cancellation_safe", True)
+                return failed_payment
 
+            if not attempts:
+                try:
+                    gateway_order = client.order.fetch(
+                        payment.gateway_order_id
+                    )
+                except Exception:
+                    logger.warning(
+                        "Unable to verify Razorpay order status for cancellation "
+                        "eligibility; payment_id=%s",
+                        payment.id,
+                    )
+                else:
+                    if gateway_order.get("status") == "created":
+                        setattr(payment, "_cancellation_safe", True)
+                        return payment
+
+            setattr(payment, "_cancellation_safe", False)
             return payment
 
         gateway_payment = captured_attempts[0]
