@@ -284,7 +284,7 @@ def delete_brand(
     if active_product_exists is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="This brand is assigned to active products. Remove the brand from those products first.",
+            detail="This brand is assigned to active products. Remove products first.",
         )
 
     logo_url = brand.logo_url

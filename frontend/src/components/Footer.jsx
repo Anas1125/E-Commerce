@@ -72,10 +72,13 @@ function Footer() {
         {/* Main footer */}
         <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
           {/* Brand */}
-          <div>
+          <div>  
             <BrandMark
               logoType="footer"
-              imageClassName="h-10 max-w-44 object-contain"
+              alwaysShowName
+              className="gap-2"
+              imageClassName="h-8 max-w-40 object-contain"
+              nameClassName="text-base font-semibold tracking-tight text-[#344D3E] sm:text-lg"
             />
 
             <p className="mt-4 max-w-sm text-sm leading-7 text-[#6A716B]">
