@@ -318,11 +318,15 @@ function Shop() {
     }
 
     if (availability === "in") {
-      results = results.filter((product) => Number(product.stock) > 0);
+      results = results.filter(
+        (product) => Number(product.available_stock ?? product.stock ?? 0) > 0,
+      );
     }
 
     if (availability === "out") {
-      results = results.filter((product) => Number(product.stock) <= 0);
+      results = results.filter(
+        (product) => Number(product.available_stock ?? product.stock ?? 0) <= 0,
+      );
     }
 
     if (sort === "low") {
