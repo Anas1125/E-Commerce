@@ -18,3 +18,9 @@ frontend/.env.*
 # Editors
 .vscode/
 .idea/
+
+# Database backups and dumps
+*.sql
+*.sql.gz
+*.dump
+*.bak
