@@ -835,6 +835,75 @@ function Categories() {
         .slice(0, 4),
     [categories, productsByCategory],
   );
+  const featuredTrackRef = useRef(null);
+  const isFeaturedPausedRef = useRef(false);
+
+  const pauseFeatured = (paused) => {
+    isFeaturedPausedRef.current = paused;
+  };
+  useEffect(() => {
+    const track = featuredTrackRef.current;
+
+    if (!track || featuredCategories.length < 2) return;
+
+    // Respect reduced-motion accessibility preferences.
+    const motionQuery = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    );
+
+    if (motionQuery.matches) return;
+
+    let animationFrame;
+    let previousTime = 0;
+    let position = 0;
+
+    const speed = 35; // pixels per second
+
+    const originalCards = Array.from(track.children);
+    if (!originalCards.length) return;
+
+    const clones = originalCards.map((card) => {
+      const clone = card.cloneNode(true);
+      clone.setAttribute("aria-hidden", "true");
+
+      clone.querySelectorAll("a, button, input, select, textarea").forEach(
+        (element) => {
+          element.setAttribute("tabindex", "-1");
+        }
+      );
+
+      track.appendChild(clone);
+      return clone;
+    });
+
+    const loopWidth = track.scrollWidth / 2;
+
+    const animate = (time) => {
+      if (!previousTime) previousTime = time;
+
+      const delta = Math.min((time - previousTime) / 1000, 0.05);
+      previousTime = time;
+
+      if (!isFeaturedPausedRef.current) {
+        position += speed * delta;
+
+        if (position >= loopWidth) {
+          position -= loopWidth;
+        }
+
+        track.scrollLeft = position;
+      }
+
+      animationFrame = requestAnimationFrame(animate);
+    };
+
+    animationFrame = requestAnimationFrame(animate);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      clones.forEach((clone) => clone.remove());
+    };
+  }, [featuredCategories]);
 
   const sortedCategories = useMemo(() => {
     const result = [...categories];
@@ -1061,15 +1130,39 @@ function Categories() {
                   View all
                 </a>
               </div>
+     
+              <div
+                className="relative"
+                onMouseEnter={() => pauseFeatured(true)}
+                onMouseLeave={() => pauseFeatured(false)}
+                onFocusCapture={() => pauseFeatured(true)}
+                onBlurCapture={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) {
+                    pauseFeatured(false);
+                  }
+                }}
+              >
+                <div
+                  ref={featuredTrackRef}
+                  className="flex gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  aria-label="Featured categories"
+                >
+                  {featuredCategories.map((category) => (
+                    <div
+                      key={category.id}
+                      className="w-[82%] shrink-0 snap-start sm:w-[48%] md:w-[calc((100%-2rem)/3)] lg:w-[calc((100%-3rem)/4)]"
+                    >
+                      <CategoryCard
+                        category={category}
+                        count={countFor(category)}
+                      />
+                    </div>
+                  ))}
+                </div>
 
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                {featuredCategories.map((category) => (
-                  <CategoryCard
-                    key={category.id}
-                    category={category}
-                    count={countFor(category)}
-                  />
-                ))}
+                <p className="mt-1 text-xs text-[#878787] md:hidden">
+                  Swipe to explore more categories
+                </p>
               </div>
             </section>
           )}
