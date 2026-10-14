@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ImagePlus, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
-
+import {
+  ChevronLeft,
+  ChevronRight,
+  ImagePlus,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import useAdminNotice from "../hooks/useAdminNotice";
 import api, { resolveMediaUrl } from "../services/api";
 import {
@@ -11,21 +20,17 @@ import {
   AdminTable,
 } from "../components/AdminUI";
 
-const BLANK = {
-  name: "",
-  is_active: true,
-};
-
+const BLANK = { name: "", is_active: true };
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
 const UPLOAD_TIMEOUT_MS = 120000;
+const PAGE_SIZE = 10;
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function apiErrorMessage(error, fallback) {
-  const detail = error.response?.data?.detail;
+  const detail = error?.response?.data?.detail;
 
   if (typeof detail === "string") return detail;
 
@@ -37,14 +42,13 @@ function apiErrorMessage(error, fallback) {
     if (messages.length) return messages.join("; ");
   }
 
-  return error.response
+  return error?.response
     ? fallback
     : "Network problem. Check your connection and try again.";
 }
 
 async function fetchBrands() {
   const response = await api.get("/brands/admin/all");
-
   return Array.isArray(response.data) ? response.data : [];
 }
 
@@ -57,7 +61,6 @@ function Modal({
 }) {
   const dialogRef = useRef(null);
   const titleId = useId();
-
   const onCloseRef = useRef(onClose);
   const closeDisabledRef = useRef(closeDisabled);
 
@@ -121,7 +124,9 @@ function Modal({
     <div
       className="fixed inset-0 z-[80] flex items-end justify-center bg-black/35 sm:items-center sm:p-4"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !closeDisabled) onClose();
+        if (event.target === event.currentTarget && !closeDisabled) {
+          onClose();
+        }
       }}
     >
       <section
@@ -206,9 +211,7 @@ function BrandActions({ brand, disabled, onEdit, onDelete, variant }) {
         onClick={() => onEdit(brand)}
         disabled={disabled}
         aria-label={`Edit ${brand.name}`}
-        className={`${base} ${
-          isCard ? "border-[#D6D9D5]" : ""
-        } text-[#1F2521] hover:bg-[#F1F3F6]`}
+        className={`${base} ${isCard ? "border-[#D6D9D5]" : ""} text-[#1F2521] hover:bg-[#F1F3F6]`}
       >
         <Pencil size={16} aria-hidden="true" />
         {isCard && <span>Edit</span>}
@@ -219,9 +222,7 @@ function BrandActions({ brand, disabled, onEdit, onDelete, variant }) {
         onClick={() => onDelete(brand)}
         disabled={disabled}
         aria-label={`Delete ${brand.name}`}
-        className={`${base} ${
-          isCard ? "border-[#FFCDD2]" : ""
-        } text-[#D32F2F] hover:bg-[#FFEBEE]`}
+        className={`${base} ${isCard ? "border-[#FFCDD2]" : ""} text-[#D32F2F] hover:bg-[#FFEBEE]`}
       >
         <Trash2 size={16} aria-hidden="true" />
         {isCard && <span>Delete</span>}
@@ -247,27 +248,27 @@ function AdminBrands() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-
   const [dialogOpen, setDialogOpen] = useState(false);
   const [edit, setEdit] = useState(null);
   const [form, setForm] = useState(BLANK);
   const [formError, setFormError] = useState("");
-
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [removeLogo, setRemoveLogo] = useState(false);
-
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const { notice, notify, clear } = useAdminNotice();
 
   const requestId = useRef(0);
-
   const previewRef = useRef("");
 
   const setFile = (file) => {
-    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    if (previewRef.current) {
+      URL.revokeObjectURL(previewRef.current);
+    }
 
     const url = file ? URL.createObjectURL(file) : "";
 
@@ -278,7 +279,9 @@ function AdminBrands() {
 
   useEffect(
     () => () => {
-      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+      if (previewRef.current) {
+        URL.revokeObjectURL(previewRef.current);
+      }
     },
     [],
   );
@@ -298,7 +301,9 @@ function AdminBrands() {
 
       setLoadError(apiErrorMessage(error, "Unable to load brands."));
     } finally {
-      if (id === requestId.current) setLoading(false);
+      if (id === requestId.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -307,15 +312,22 @@ function AdminBrands() {
 
     fetchBrands()
       .then((list) => {
-        if (id === requestId.current) setRows(list);
+        if (id !== requestId.current) return;
+
+        setRows(list);
+        setLoadError("");
       })
       .catch((error) => {
-        if (id === requestId.current) {
-          setLoadError(apiErrorMessage(error, "Unable to load brands."));
-        }
+        if (id !== requestId.current) return;
+
+        setLoadError(
+          apiErrorMessage(error, "Unable to load brands."),
+        );
       })
       .finally(() => {
-        if (id === requestId.current) setLoading(false);
+        if (id === requestId.current) {
+          setLoading(false);
+        }
       });
 
     return () => {
@@ -334,11 +346,13 @@ function AdminBrands() {
     setRemoveLogo(false);
     setFormError("");
     setEdit(brand || null);
+
     setForm(
       brand
         ? { name: brand.name || "", is_active: Boolean(brand.is_active) }
         : BLANK,
     );
+
     setDialogOpen(true);
   };
 
@@ -417,11 +431,14 @@ function AdminBrands() {
           });
         } catch (uploadError) {
           setEdit(saved);
+
           setForm({
             name: saved.name ?? name,
             is_active: saved.is_active ?? form.is_active,
           });
+
           setRemoveLogo(false);
+
           setFormError(
             `Brand saved, but the logo upload failed: ${apiErrorMessage(
               uploadError,
@@ -435,6 +452,7 @@ function AdminBrands() {
       }
 
       closeDialog();
+
       notify(wasEditing ? "Brand updated." : "Brand created.");
 
       await load();
@@ -458,13 +476,36 @@ function AdminBrands() {
       notify("Brand deleted.");
       await load();
     } catch (error) {
-      notify(apiErrorMessage(error, "Brand could not be deleted."), "error");
+      notify(
+        apiErrorMessage(error, "Brand could not be deleted."),
+        "error",
+      );
     } finally {
       setDeletingId(null);
     }
   };
 
   const actionsDisabled = deletingId !== null;
+
+  // Instant search by brand name.
+  const query = search.trim().toLowerCase();
+
+  const filteredRows = rows.filter((brand) =>
+    String(brand.name || "").toLowerCase().includes(query),
+  );
+
+  // Client-side pagination: 10 brands per page.
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredRows.length / PAGE_SIZE),
+  );
+
+  const currentPage = Math.min(page, pageCount);
+
+  const visibleRows = filteredRows.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
 
   let content;
 
@@ -501,7 +542,9 @@ function AdminBrands() {
             role="alert"
             className="flex flex-col gap-2 border-b border-[#E3E5DF] bg-[#FFF8E1] px-4 py-3 text-sm text-[#6A4B00] sm:flex-row sm:items-center sm:justify-between"
           >
-            <span>Couldn't refresh the list. Showing the last loaded data.</span>
+            <span>
+              Couldn't refresh the list. Showing the last loaded data.
+            </span>
 
             <button
               type="button"
@@ -513,12 +556,84 @@ function AdminBrands() {
           </div>
         )}
 
-        {/* DESKTOP / TABLET TABLE */}
-        <div className="hidden overflow-x-auto md:block">
-          <AdminTable headers={["Brand", "Status", "Actions"]}>
-            {rows.map((brand) => (
-              <tr key={brand.id}>
-                <td className="px-5 py-4">
+        {/* Search bar */}
+        <div className="border-b border-[#E3E5DF] p-4">
+          <div className="relative">
+            <Search
+              size={18}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+            />
+
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Search brands..."
+              aria-label="Search brands by name"
+              className="w-full rounded-xl border border-gray-300 bg-white py-3 pl-10 pr-10 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20"
+            />
+
+            {search && (
+              <button
+                type="button"
+                aria-label="Clear brand search"
+                onClick={() => {
+                  setSearch("");
+                  setPage(1);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-900"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {filteredRows.length ? (
+          <>
+            {/* Desktop and tablet table */}
+            <div className="hidden overflow-x-auto md:block">
+              <AdminTable headers={["Brand", "Status", "Actions"]}>
+                {visibleRows.map((brand) => (
+                  <tr key={brand.id}>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <BrandLogo
+                          key={brand.logo_url || "none"}
+                          url={brand.logo_url}
+                          name={brand.name}
+                        />
+
+                        <span className="font-medium">{brand.name}</span>
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <StatusBadge active={brand.is_active} />
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <BrandActions
+                        brand={brand}
+                        disabled={actionsDisabled}
+                        onEdit={openDialog}
+                        onDelete={remove}
+                        variant="table"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </AdminTable>
+            </div>
+
+            {/* Mobile cards */}
+            <ul className="divide-y divide-[#E3E5DF] md:hidden">
+              {visibleRows.map((brand) => (
+                <li key={brand.id} className="p-4">
                   <div className="flex items-center gap-3">
                     <BrandLogo
                       key={brand.logo_url || "none"}
@@ -526,58 +641,74 @@ function AdminBrands() {
                       name={brand.name}
                     />
 
-                    <span className="font-medium">{brand.name}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words font-medium">
+                        {brand.name}
+                      </p>
+
+                      <div className="mt-1">
+                        <StatusBadge active={brand.is_active} />
+                      </div>
+                    </div>
                   </div>
-                </td>
 
-                <td className="px-5 py-4">
-                  <StatusBadge active={brand.is_active} />
-                </td>
-
-                <td className="px-5 py-4">
                   <BrandActions
                     brand={brand}
                     disabled={actionsDisabled}
                     onEdit={openDialog}
                     onDelete={remove}
-                    variant="table"
+                    variant="card"
                   />
-                </td>
-              </tr>
-            ))}
-          </AdminTable>
-        </div>
+                </li>
+              ))}
+            </ul>
 
-        {/* MOBILE CARDS */}
-        <ul className="divide-y divide-[#E3E5DF] md:hidden">
-          {rows.map((brand) => (
-            <li key={brand.id} className="p-4">
-              <div className="flex items-center gap-3">
-                <BrandLogo
-                  key={brand.logo_url || "none"}
-                  url={brand.logo_url}
-                  name={brand.name}
-                />
+            {/* Pagination */}
+            <div className="flex flex-col gap-3 border-t border-[#E3E5DF] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-[#6A716B] sm:text-sm">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+                {Math.min(currentPage * PAGE_SIZE, filteredRows.length)} of{" "}
+                {filteredRows.length} brands
+              </p>
 
-                <div className="min-w-0 flex-1">
-                  <p className="break-words font-medium">{brand.name}</p>
+              <div className="flex items-center justify-between gap-3 sm:justify-end">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() =>
+                    setPage((current) => Math.max(1, current - 1))
+                  }
+                  className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[#D6D9D5] px-3 text-sm disabled:opacity-40"
+                >
+                  <ChevronLeft size={16} />
+                  Previous
+                </button>
 
-                  <div className="mt-1">
-                    <StatusBadge active={brand.is_active} />
-                  </div>
-                </div>
+                <span className="whitespace-nowrap text-xs text-[#6A716B]">
+                  {currentPage} / {pageCount}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() =>
+                    setPage((current) => Math.min(pageCount, current + 1))
+                  }
+                  className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[#D6D9D5] px-3 text-sm disabled:opacity-40"
+                >
+                  Next
+                  <ChevronRight size={16} />
+                </button>
               </div>
-
-              <BrandActions
-                brand={brand}
-                disabled={actionsDisabled}
-                onEdit={openDialog}
-                onDelete={remove}
-                variant="card"
-              />
-            </li>
-          ))}
-        </ul>
+            </div>
+          </>
+        ) : (
+          <AdminEmpty>
+            {query
+              ? `No brands match "${search.trim()}".`
+              : "No brands yet."}
+          </AdminEmpty>
+        )}
       </>
     );
   }

@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
-import { ImagePlus, Pencil, Trash2, Upload, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ImagePlus,
+  Pencil,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import useAdminNotice from "../hooks/useAdminNotice";
 import api, { resolveMediaUrl } from "../services/api";
 import {
@@ -11,6 +20,7 @@ import {
 } from "../components/AdminUI";
 
 const blank = { name: "", slug: "", image_url: "" };
+const PAGE_SIZE = 8;
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -47,14 +57,41 @@ function AdminCategories() {
   const [form, setForm] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  // { file, url } — url is the local blob preview, created in the handler
   const [selected, setSelected] = useState(null);
   const { notice, notify, clear } = useAdminNotice();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const selectedFile = selected?.file ?? null;
   const previewUrl = selected?.url ?? "";
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const matchesQuery = (category) =>
+    `${category.name || ""} ${category.slug || ""}`
+      .toLowerCase()
+      .includes(normalizedQuery);
 
-  // Revoke the blob URL whenever it is replaced or the component unmounts
+  const filteredRows = normalizedQuery
+    ? rows.filter(matchesQuery)
+    : rows;
+
+  const suggestions = normalizedQuery
+    ? rows.filter(matchesQuery).slice(0, 6)
+    : [];
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredRows.length / PAGE_SIZE)
+  );
+
+  const safePage = Math.min(currentPage, pageCount);
+
+  const visibleRows = filteredRows.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE
+  );
+
+
   useEffect(() => {
     if (!previewUrl) return undefined;
     return () => URL.revokeObjectURL(previewUrl);
@@ -196,8 +233,106 @@ function AdminCategories() {
         description="Organize the store collection by category."
       />
       <AdminNotice notice={notice} onClose={clear} />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <AdminPanel className="h-fit">
+          <div className="border-b border-[#E3E5DF] p-4 sm:p-5">
+            <div
+              className="relative"
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) {
+                  setShowSearchSuggestions(false);
+                }
+              }}
+            >
+              <label
+                htmlFor="category-search"
+                className="mb-2 block text-sm font-medium text-[#212121]"
+              >
+                Search categories
+              </label>
+
+              <div className="relative">
+                <Search
+                  size={18}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#737A74]"
+                />
+
+                <input
+                  id="category-search"
+                  type="search"
+                  value={searchQuery}
+                  autoComplete="off"
+                  placeholder="Type a category name or slug..."
+                  aria-controls="category-search-suggestions"
+                  aria-expanded={showSearchSuggestions && suggestions.length > 0}
+                  onFocus={() => {
+                    if (normalizedQuery) setShowSearchSuggestions(true);
+                  }}
+                  onChange={(event) => {
+                    setSearchQuery(event.target.value);
+                    setCurrentPage(1);
+                    setShowSearchSuggestions(Boolean(event.target.value.trim()));
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setShowSearchSuggestions(false);
+                    }
+                  }}
+                  className="w-full min-w-0 rounded-xl border border-[#D6DCE5] bg-[#F8FAFC] py-3 pl-10 pr-10 text-sm outline-none transition focus:border-[#486B57] focus:bg-white focus:ring-2 focus:ring-[#486B57]/10"
+                />
+
+                {searchQuery && (
+                  <button
+                    type="button"
+                    aria-label="Clear category search"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setCurrentPage(1);
+                      setShowSearchSuggestions(false);
+                    }}
+                    className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-[#737A74] hover:bg-[#E8ECE6]"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              {showSearchSuggestions && normalizedQuery && suggestions.length > 0 && (
+                <div
+                  id="category-search-suggestions"
+                  role="listbox"
+                  className="absolute inset-x-0 top-full z-30 mt-2 max-h-64 overflow-y-auto rounded-xl border border-[#E3E5DF] bg-white p-1 shadow-xl"
+                >
+                  {suggestions.map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      onClick={() => {
+                        setSearchQuery(category.name);
+                        setCurrentPage(1);
+                        setShowSearchSuggestions(false);
+                      }}
+                      className="flex w-full min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-[#F5F5F1]"
+                    >
+                      <span className="min-w-0 truncate text-sm font-medium text-[#212121]">
+                        {category.name}
+                      </span>
+                      <span className="shrink-0 text-xs text-[#737A74]">
+                        {category.slug}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <p className="mt-2 text-xs text-[#737A74]" aria-live="polite">
+                {filteredRows.length}{" "}
+                {filteredRows.length === 1 ? "category" : "categories"} found
+              </p>
+            </div>
+          </div>
           {loading ? (
             <div className="px-5 py-8 text-sm text-[#737A74]">
               Loading categories…
@@ -215,53 +350,169 @@ function AdminCategories() {
                 Retry
               </button>
             </div>
-          ) : rows.length ? (
-            <AdminTable headers={["Category", "Slug", "Actions"]}>
-              {rows.map((category) => (
-                <tr key={category.id}>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      {category.image_url && (
+          ) : filteredRows.length ? (
+              <>
+                <div className="space-y-3 p-3 xl:p-4 2xl:hidden">
+                  {visibleRows.map((category) => (
+                    <article
+                      key={category.id}
+                      className="flex min-w-0 items-center gap-3 rounded-xl border border-[#E3E5DF] bg-white p-3 sm:p-4"
+                    >
+                      {category.image_url ? (
                         <img
                           src={resolveMediaUrl(category.image_url)}
                           alt=""
-                          className="h-12 w-16 rounded-lg object-cover"
+                          className="h-14 w-14 shrink-0 rounded-lg bg-[#F5F5F1] object-cover sm:h-16 sm:w-16"
                         />
+                      ) : (
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-[#F5F5F1] text-[#737A74] sm:h-16 sm:w-16">
+                          <ImagePlus size={20} />
+                        </div>
                       )}
-                      <span className="font-medium">{category.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 text-[#737A74]">{category.slug}</td>
-                  <td className="px-5 py-4">
-                    <div className="flex gap-2">
+
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words text-sm font-semibold text-[#212121]">
+                          {category.name}
+                        </p>
+                        <p className="mt-1 break-all text-xs text-[#737A74]">
+                          {category.slug}
+                        </p>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => start(category)}
+                          aria-label={`Edit ${category.name}`}
+                          className="rounded-lg p-2 hover:bg-[#DCE7DE]"
+                        >
+                          <Pencil size={16} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => remove(category)}
+                          disabled={deletingId === category.id}
+                          aria-label={`Delete ${category.name}`}
+                          className="rounded-lg p-2 text-[#8b4033] hover:bg-[#f8e8e3] disabled:opacity-50"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="hidden 2xl:block">
+                  <AdminTable headers={["Category", "Slug", "Actions"]}>
+                    {visibleRows.map((category) => (
+                      <tr key={category.id}>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            {category.image_url && (
+                              <img
+                                src={resolveMediaUrl(category.image_url)}
+                                alt=""
+                                className="h-12 w-16 rounded-lg object-cover"
+                              />
+                            )}
+                            <span className="font-medium">{category.name}</span>
+                          </div>
+                        </td>
+
+                        <td className="px-5 py-4 text-[#737A74]">
+                          {category.slug}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => start(category)}
+                              aria-label={`Edit ${category.name}`}
+                              className="rounded-lg p-2 hover:bg-[#DCE7DE]"
+                            >
+                              <Pencil size={16} aria-hidden="true" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => remove(category)}
+                              disabled={deletingId === category.id}
+                              aria-label={`Delete ${category.name}`}
+                              className="rounded-lg p-2 text-[#8b4033] hover:bg-[#f8e8e3] disabled:opacity-50"
+                            >
+                              <Trash2 size={16} aria-hidden="true" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </AdminTable>
+                </div>
+
+                {/* Pagination */}
+                <div className="flex flex-col gap-3 border-t border-[#E3E5DF] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                  <p className="text-xs text-[#737A74] sm:text-sm">
+                    Showing {(safePage - 1) * PAGE_SIZE + 1}–
+                    {Math.min(safePage * PAGE_SIZE, filteredRows.length)} of{" "}
+                    {filteredRows.length}
+                  </p>
+
+                  {pageCount > 1 && (
+                    <div className="flex items-center justify-between gap-3 sm:justify-end">
                       <button
                         type="button"
-                        onClick={() => start(category)}
-                        aria-label={`Edit ${category.name}`}
-                        className="cursor-pointer rounded-lg p-2 hover:bg-[#DCE7DE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/40 focus-visible:ring-offset-2"
+                        disabled={safePage === 1}
+                        onClick={() => setCurrentPage(safePage - 1)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#E3E5DF] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        <Pencil size={16} aria-hidden="true" />
+                        <ChevronLeft size={16} />
+                        Previous
                       </button>
+
+                      <span className="whitespace-nowrap text-xs text-[#737A74]">
+                        Page {safePage} of {pageCount}
+                      </span>
+
                       <button
                         type="button"
-                        onClick={() => remove(category)}
-                        disabled={deletingId === category.id}
-                        aria-label={`Delete ${category.name}`}
-                        className="cursor-pointer rounded-lg p-2 text-[#8b4033] hover:bg-[#f8e8e3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]/40 focus-visible:ring-offset-2 disabled:opacity-50"
+                        disabled={safePage === pageCount}
+                        onClick={() => setCurrentPage(safePage + 1)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#E3E5DF] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        <Trash2 size={16} aria-hidden="true" />
+                        Next
+                        <ChevronRight size={16} />
                       </button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </AdminTable>
-          ) : (
-            <AdminEmpty>No categories yet.</AdminEmpty>
-          )}
+                  )}
+                </div>
+              </>
+            ) : (
+              <AdminEmpty>
+                {rows.length ? (
+                  <div>
+                    <p>No categories match “{searchQuery}”.</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setCurrentPage(1);
+                        setShowSearchSuggestions(false);
+                      }}
+                      className="mt-3 font-semibold text-[#486B57]"
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                ) : (
+                  "No categories yet."
+                )}
+              </AdminEmpty>
+            )}
         </AdminPanel>
 
-        <div className="sticky top-24 self-start">
+        <div className="min-w-0 xl:sticky xl:top-24 xl:self-start">
           <AdminPanel className="h-fit p-5">
             <h2 className="font-semibold">
               {edit ? "Edit category" : "Add category"}

@@ -837,16 +837,41 @@ function Categories() {
   );
   const featuredTrackRef = useRef(null);
   const isFeaturedPausedRef = useRef(false);
+  const featuredResumeTimerRef = useRef(null);
 
   const pauseFeatured = (paused) => {
+    if (featuredResumeTimerRef.current) {
+      window.clearTimeout(featuredResumeTimerRef.current);
+      featuredResumeTimerRef.current = null;
+    }
+
     isFeaturedPausedRef.current = paused;
+  };
+
+  const pauseFeaturedForTouch = () => {
+    if (featuredResumeTimerRef.current) {
+      window.clearTimeout(featuredResumeTimerRef.current);
+      featuredResumeTimerRef.current = null;
+    }
+
+    isFeaturedPausedRef.current = true;
+  };
+
+  const resumeFeaturedAfterTouch = () => {
+    if (featuredResumeTimerRef.current) {
+      window.clearTimeout(featuredResumeTimerRef.current);
+    }
+
+    featuredResumeTimerRef.current = window.setTimeout(() => {
+      isFeaturedPausedRef.current = false;
+      featuredResumeTimerRef.current = null;
+    }, 1800);
   };
   useEffect(() => {
     const track = featuredTrackRef.current;
 
     if (!track || featuredCategories.length < 2) return;
 
-    // Respect reduced-motion accessibility preferences.
     const motionQuery = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
     );
@@ -884,7 +909,14 @@ function Categories() {
       const delta = Math.min((time - previousTime) / 1000, 0.05);
       previousTime = time;
 
-      if (!isFeaturedPausedRef.current) {
+      if (isFeaturedPausedRef.current) {
+        position = track.scrollLeft;
+
+        if (position >= loopWidth) {
+          position -= loopWidth;
+          track.scrollLeft = position;
+        }
+      } else {
         position += speed * delta;
 
         if (position >= loopWidth) {
@@ -901,6 +933,12 @@ function Categories() {
 
     return () => {
       cancelAnimationFrame(animationFrame);
+
+      if (featuredResumeTimerRef.current) {
+        window.clearTimeout(featuredResumeTimerRef.current);
+        featuredResumeTimerRef.current = null;
+      }
+
       clones.forEach((clone) => clone.remove());
     };
   }, [featuredCategories]);
@@ -1141,10 +1179,13 @@ function Categories() {
                     pauseFeatured(false);
                   }
                 }}
+                onTouchStart={pauseFeaturedForTouch}
+                onTouchEnd={resumeFeaturedAfterTouch}
+                onTouchCancel={resumeFeaturedAfterTouch}
               >
                 <div
                   ref={featuredTrackRef}
-                  className="flex gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="flex touch-pan-x gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   aria-label="Featured categories"
                 >
                   {featuredCategories.map((category) => (

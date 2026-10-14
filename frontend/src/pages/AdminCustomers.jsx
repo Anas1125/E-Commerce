@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Search,
+  X,
+} from "lucide-react";
 import useAdminNotice from "../hooks/useAdminNotice";
 import api from "../services/api";
 import {
@@ -11,6 +17,7 @@ import {
   Badge,
 } from "../components/AdminUI";
 
+const PAGE_SIZE = 10;
 function apiErrorMessage(error, fallback) {
   const detail = error?.response?.data?.detail;
   if (typeof detail === "string") return detail;
@@ -44,31 +51,75 @@ function AdminCustomers() {
   const [viewLoading, setViewLoading] = useState(false);
   const modalRef = useRef(null);
   const triggerRef = useRef(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(totalCount / PAGE_SIZE)
+  );
 
   useEffect(() => {
     let cancelled = false;
+
     api
       .get("/admin/customers/", {
-        params: active ? { is_active: active } : {},
+        params: {
+          ...(active !== "" ? { is_active: active } : {}),
+          ...(debouncedSearch ? { q: debouncedSearch } : {}),
+          limit: PAGE_SIZE,
+          offset: (page - 1) * PAGE_SIZE,
+        },
       })
       .then((response) => {
         if (cancelled) return;
-        setRows(Array.isArray(response.data) ? response.data : []);
+
+        const customers = Array.isArray(response.data)
+          ? response.data
+          : [];
+
+        setRows(customers);
+
+        const countHeader = response.headers?.["x-total-count"];
+
+        setTotalCount(
+          countHeader !== undefined
+            ? Number(countHeader)
+            : customers.length
+        );
+
         setLoadError("");
       })
       .catch((error) => {
         if (cancelled) return;
-        const message = apiErrorMessage(error, "Unable to load customers.");
+
+        const message = apiErrorMessage(
+          error,
+          "Unable to load customers."
+        );
+
         setLoadError(message);
         notify(message, "error");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
     return () => {
       cancelled = true;
     };
-  }, [active, reloadKey, notify]);
+  }, [active, debouncedSearch, page, reloadKey, notify]);
+
+    useEffect(() => {
+      const timer = window.setTimeout(() => {
+        setDebouncedSearch(search.trim());
+        setPage(1);
+      }, 300);
+
+      return () => window.clearTimeout(timer);
+    }, [search]);
 
   useEffect(() => {
     if (!detail) return undefined;
@@ -132,6 +183,7 @@ function AdminCustomers() {
   const changeFilter = (event) => {
     setLoading(true);
     setLoadError("");
+    setPage(1);
     setActive(event.target.value);
   };
 
@@ -193,9 +245,45 @@ function AdminCustomers() {
       />
       <AdminNotice notice={notice} onClose={clear} />
       <AdminPanel>
-        <div className="border-b border-[#E3E5DF] p-4">
+        <div className="flex flex-col gap-3 border-b border-[#E3E5DF] p-4 sm:flex-row">
+          <div className="relative flex-1">
+            <Search
+              size={18}
+              className="pointer-events-none absolute left-3 top-1/2
+                        -translate-y-1/2 text-gray-400"
+            />
+
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSearch(value);
+                setLoading(value.trim() !== debouncedSearch);
+              }}
+              placeholder="Search by name, email or phone..."
+              className="w-full rounded-xl border border-gray-300
+                        bg-white py-3 pl-10 pr-10
+                        outline-none focus:border-emerald-700
+                        focus:ring-2 focus:ring-emerald-700/20"
+            />
+
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2
+                          -translate-y-1/2 text-gray-500
+                          hover:text-gray-900"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+
           <select
-            className="field max-w-56"
+            className="field w-full sm:max-w-56"
             aria-label="Filter customer accounts"
             value={active}
             onChange={changeFilter}
@@ -222,53 +310,169 @@ function AdminCustomers() {
               Retry
             </button>
           </div>
-        ) : rows.length ? (
-          <AdminTable
-            headers={[
-              "Customer",
-              "Email",
-              "Phone",
-              "Joined",
-              "Status",
-              "Actions",
-            ]}
-          >
-            {rows.map((c) => (
-              <tr key={c.id}>
-                <td className="px-5 py-4 font-medium">
-                  {c.first_name} {c.last_name || ""}
-                </td>
-                <td className="px-5 py-4">{c.email}</td>
-                <td className="px-5 py-4">{c.phone_number || "—"}</td>
-                <td className="px-5 py-4">{formatDate(c.created_at)}</td>
-                <td className="px-5 py-4">
-                  <Badge>{c.is_active ? "active" : "inactive"}</Badge>
-                </td>
-                <td className="px-5 py-4">
+          ) : totalCount > 0 ? (
+            <>
+              <div className="space-y-3 p-3 xl:hidden">
+                {rows.map((c) => (
+                  <article
+                    key={c.id}
+                    className="min-w-0 rounded-xl border border-[#E3E5DF] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="break-words text-sm font-semibold">
+                          {c.first_name} {c.last_name || ""}
+                        </h3>
+
+                        <p className="mt-1 break-all text-xs text-[#737A74]">
+                          {c.email}
+                        </p>
+
+                        <p className="mt-1 break-words text-xs text-[#737A74]">
+                          {c.phone_number || "No phone number"}
+                        </p>
+                      </div>
+
+                      <Badge>{c.is_active ? "active" : "inactive"}</Badge>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[#E3E5DF] pt-3">
+                      <p className="text-xs text-[#737A74]">
+                        Joined {formatDate(c.created_at)}
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={viewLoading}
+                          onClick={() => view(c.id)}
+                          className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[#E3E5DF] px-3 text-sm font-medium hover:bg-[#F5F5F1] disabled:opacity-50"
+                        >
+                          <Eye size={15} />
+                          View
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={pendingId === c.id}
+                          onClick={() => toggle(c)}
+                          className="min-h-10 rounded-lg px-2 text-sm font-medium text-[#486B57] disabled:opacity-50"
+                        >
+                          {pendingId === c.id
+                            ? "Updating..."
+                            : c.is_active
+                              ? "Deactivate"
+                              : "Activate"}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              {/* Full table on wider screens */}
+              <div className="hidden xl:block">
+                <AdminTable
+                  headers={[
+                    "Customer",
+                    "Email",
+                    "Phone",
+                    "Joined",
+                    "Status",
+                    "Actions",
+                  ]}
+                >
+                  {rows.map((c) => (
+                    <tr key={c.id}>
+                      <td className="break-words px-5 py-4 font-medium">
+                        {c.first_name} {c.last_name || ""}
+                      </td>
+                      <td className="break-all px-5 py-4">{c.email}</td>
+                      <td className="px-5 py-4">{c.phone_number || "—"}</td>
+                      <td className="px-5 py-4">{formatDate(c.created_at)}</td>
+                      <td className="px-5 py-4">
+                        <Badge>{c.is_active ? "active" : "inactive"}</Badge>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            aria-label={`View ${c.first_name}`}
+                            disabled={viewLoading}
+                            onClick={() => view(c.id)}
+                            className="rounded-lg p-2 hover:bg-[#DCE7DE] disabled:opacity-50"
+                          >
+                            <Eye size={16} aria-hidden="true" />
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={pendingId === c.id}
+                            className="text-sm font-medium text-[#486B57] disabled:opacity-50"
+                            onClick={() => toggle(c)}
+                          >
+                            {pendingId === c.id
+                              ? "Updating..."
+                              : c.is_active
+                                ? "Deactivate"
+                                : "Activate"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </AdminTable>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex flex-col gap-3 border-t border-[#E3E5DF] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-[#737A74] sm:text-sm">
+                  Showing {(page - 1) * PAGE_SIZE + 1}–
+                  {Math.min(page * PAGE_SIZE, totalCount)} of {totalCount} customers
+                </p>
+
+                <div className="flex items-center justify-between gap-3 sm:justify-end">
                   <button
                     type="button"
-                    aria-label={`View ${c.first_name}`}
-                    disabled={viewLoading}
-                    onClick={() => view(c.id)}
-                    className="cursor-pointer rounded-lg p-2 hover:bg-[#DCE7DE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57] disabled:opacity-50"
+                    disabled={page <= 1 || loading}
+                    onClick={() => {
+                      setLoading(true);
+                      setPage((current) => current - 1);
+                    }}
+                    className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[#E3E5DF] px-3 text-sm disabled:opacity-40"
                   >
-                    <Eye size={16} aria-hidden="true" />
+                    <ChevronLeft size={16} />
+                    Previous
                   </button>
+
+                  <span className="whitespace-nowrap text-xs text-[#737A74]">
+                    {page} / {pageCount}
+                  </span>
+
                   <button
                     type="button"
-                    disabled={pendingId === c.id}
-                    className="ml-1 cursor-pointer text-sm font-medium text-[#486B57] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57] disabled:opacity-50"
-                    onClick={() => toggle(c)}
+                    disabled={page >= pageCount || loading}
+                    onClick={() => {
+                      setLoading(true);
+                      setPage((current) => current + 1);
+                    }}
+                    className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[#E3E5DF] px-3 text-sm disabled:opacity-40"
                   >
-                    {c.is_active ? "Deactivate" : "Activate"}
+                    Next
+                    <ChevronRight size={16} />
                   </button>
-                </td>
-              </tr>
-            ))}
-          </AdminTable>
-        ) : (
-          <AdminEmpty>No customers in this view.</AdminEmpty>
-        )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <AdminEmpty>
+              {debouncedSearch
+                ? `No customers match "${debouncedSearch}".`
+                : active
+                  ? "No customers in this view."
+                  : "No customers found."}
+            </AdminEmpty>
+          )}
       </AdminPanel>
       {detail && (
         <div

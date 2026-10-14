@@ -2,6 +2,7 @@ import { useContext, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { SiteBrandingContext } from "../context/site-branding-context";
+import { resolveMediaUrl } from "../services/api";
 
 function BrandMark({
   className = "",
@@ -20,7 +21,11 @@ function BrandMark({
       ? branding.footerLogoUrl || branding.logoUrl
       : branding.logoUrl;
 
-  const displayLogo = logoUrl || (fallbackLogo ? "/favicon.svg" : null);
+  const displayLogo = logoUrl
+    ? resolveMediaUrl(logoUrl)
+    : fallbackLogo
+      ? "/favicon.svg"
+      : null;
 
   const [failedLogo, setFailedLogo] = useState(null);
 

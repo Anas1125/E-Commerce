@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Eye, XCircle } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Search,
+  X,
+  XCircle,
+} from "lucide-react";
 import useAdminNotice from "../hooks/useAdminNotice";
 import api from "../services/api";
 import {
@@ -12,10 +20,13 @@ import {
 } from "../components/AdminUI";
 
 const refundStatuses = ["requested", "approved", "completed", "rejected"];
+const PAGE_SIZE = 10;
 
 function apiErrorMessage(error, fallback) {
   const detail = error?.response?.data?.detail;
+
   if (typeof detail === "string") return detail;
+
   if (Array.isArray(detail)) {
     const message = detail
       .map((item) =>
@@ -23,14 +34,18 @@ function apiErrorMessage(error, fallback) {
       )
       .filter(Boolean)
       .join("; ");
+
     return message || fallback;
   }
+
   return fallback;
 }
 
 function formatDate(value) {
   const date = new Date(value);
+
   if (!value || Number.isNaN(date.getTime())) return "—";
+
   return date.toLocaleDateString("en-IN");
 }
 
@@ -60,48 +75,71 @@ function AdminRefunds() {
   const [loadError, setLoadError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [detail, setDetail] = useState(null);
   const [gatewayId, setGatewayId] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingId, setPendingId] = useState(null);
+
   const modalRef = useRef(null);
   const triggerRef = useRef(null);
+  const busyRef = useRef(false);
+
   const { notice, notify, clear } = useAdminNotice();
+
 
   useEffect(() => {
     let cancelled = false;
+
     api
       .get("/admin/refunds/", {
         params: filter ? { refund_status: filter } : {},
       })
       .then((response) => {
         if (cancelled) return;
+
         setRows(Array.isArray(response.data) ? response.data : []);
         setLoadError("");
       })
       .catch((error) => {
         if (cancelled) return;
-        const message = apiErrorMessage(error, "Unable to load refunds.");
+
+        const message = apiErrorMessage(
+          error,
+          "Unable to load refunds.",
+        );
+
         setLoadError(message);
         notify(message, "error");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
     return () => {
       cancelled = true;
     };
   }, [filter, reloadKey, notify]);
 
+
   useEffect(() => {
     if (!detail) return undefined;
 
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      modalRef.current?.focus();
+    });
+
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
-        if (!busy) {
+        if (!busyRef.current) {
           setDetail(null);
           setGatewayId("");
         }
+
         return;
       }
 
@@ -128,65 +166,73 @@ function AdminRefunds() {
       }
     };
 
-    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", onKeyDown);
 
-    requestAnimationFrame(() => {
-      modalRef.current?.focus();
-    });
-
     return () => {
-      document.body.style.overflow = "";
+      window.cancelAnimationFrame(focusFrame);
+      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", onKeyDown);
 
-      requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
         triggerRef.current?.focus();
       });
     };
-  }, [detail, busy]);
+  }, [detail]);
 
-  const reload = () => setReloadKey((key) => key + 1);
 
-  const retry = () => {
+  const reload = () => {
     setLoading(true);
     setLoadError("");
-    reload();
+    setReloadKey((key) => key + 1);
   };
+
+  const retry = () => reload();
 
   const changeFilter = (event) => {
     setLoading(true);
     setLoadError("");
     setFilter(event.target.value);
+    setPage(1);
   };
 
-  // Always reset the gateway reference so one refund's ID can never
-  // end up recorded against a different refund.
-  const openDetail = (refund) => {
+  const openDetail = (refund, trigger) => {
+    triggerRef.current = trigger;
     setGatewayId("");
     setDetail(refund);
   };
 
   const closeDetail = () => {
-    if (busy) return;
+    if (busyRef.current) return;
+
     setDetail(null);
     setGatewayId("");
   };
 
+
   const approve = async (refund) => {
-    if (pendingId) return;
-    if (!window.confirm(`Approve refund request #${refund.id}?`)) return;
+    if (pendingId !== null) return;
+
+    if (!window.confirm(`Approve refund request #${refund.id}?`)) {
+      return;
+    }
 
     setPendingId(refund.id);
+
     try {
       await api.post(`/refunds/${refund.id}/approve`);
+
       notify("Refund approved.");
       reload();
     } catch (error) {
-      notify(apiErrorMessage(error, "Unable to approve refund."), "error");
+      notify(
+        apiErrorMessage(error, "Unable to approve refund."),
+        "error",
+      );
     } finally {
       setPendingId(null);
     }
   };
+
 
   const reject = async (refund) => {
     if (pendingId !== null) return;
@@ -226,45 +272,137 @@ function AdminRefunds() {
     }
   };
 
-
   const complete = async (event) => {
     event.preventDefault();
-    if (busy || !detail) return;
+
+    if (busyRef.current || !detail) return;
 
     const reference = gatewayId.trim();
+
     if (!reference) return;
+
+    const isCod = detail?.payment_method?.toLowerCase() === "cod";
+
+    const referenceLabel = isCod
+      ? "manual transfer reference"
+      : "gateway refund reference";
 
     if (
       !window.confirm(
-       `Record refund #${detail.id} as completed with ${
-          detail?.payment_method?.toLowerCase() === "cod"
-            ? "manual transfer reference"
-            : "gateway refund reference"
-        } "${reference}"? This cannot be undone here.`
+        `Record refund #${detail.id} as completed with ${referenceLabel} "${reference}"? This cannot be undone here.`,
       )
     ) {
       return;
     }
 
+    busyRef.current = true;
     setBusy(true);
-    try {
-      const isCod = detail?.payment_method?.toLowerCase() === "cod";
 
+    try {
       await api.post(`/refunds/${detail.id}/complete`, null, {
         params: isCod
           ? { manual_refund_reference: reference }
           : { gateway_refund_id: reference },
       });
+
       notify("Refund marked completed.");
       setDetail(null);
       setGatewayId("");
       reload();
     } catch (error) {
-      notify(apiErrorMessage(error, "Unable to complete refund."), "error");
+      notify(
+        apiErrorMessage(error, "Unable to complete refund."),
+        "error",
+      );
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   };
+
+  const query = search.trim().toLowerCase();
+
+  const filteredRows = rows.filter((refund) => {
+    const searchable = [
+      refund.id,
+      refund.order_id,
+      refund.customer_name,
+      refund.customer_email,
+      refund.reason,
+      refund.status,
+      refund.payment_method,
+      refund.gateway_payment_id,
+      refund.gateway_refund_id,
+      refund.manual_refund_reference,
+    ]
+      .filter((value) => value !== null && value !== undefined)
+      .join(" ")
+      .toLowerCase();
+
+    return searchable.includes(query);
+  });
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredRows.length / PAGE_SIZE),
+  );
+
+  const currentPage = Math.min(page, pageCount);
+
+  const visibleRows = filteredRows.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
+  const renderActions = (refund, mobile = false) => (
+    <div
+      className={`flex flex-wrap items-center gap-1 ${
+        mobile ? "justify-end" : ""
+      }`}
+    >
+      <button
+        type="button"
+        aria-label={`View refund ${refund.id}`}
+        onClick={(event) => openDetail(refund, event.currentTarget)}
+        className="inline-flex min-h-10 items-center gap-1 rounded-lg p-2 text-sm hover:bg-[#DCE7DE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]"
+      >
+        <Eye size={16} aria-hidden="true" />
+        {mobile ? "View" : null}
+      </button>
+
+      {refund.status === "requested" && (
+        <>
+          <button
+            type="button"
+            disabled={pendingId !== null}
+            aria-label={`Approve refund ${refund.id}`}
+            onClick={() => approve(refund)}
+            className="inline-flex min-h-10 items-center gap-1 rounded-lg p-2 text-sm text-[#486B57] hover:bg-[#DCE7DE] disabled:opacity-50"
+          >
+            <Check size={16} aria-hidden="true" />
+            {mobile ? "Approve" : null}
+          </button>
+
+          <button
+            type="button"
+            disabled={pendingId !== null}
+            aria-label={`Decline refund ${refund.id}`}
+            onClick={() => reject(refund)}
+            className="inline-flex min-h-10 items-center gap-1 rounded-lg p-2 text-sm text-[#8b4033] hover:bg-red-50 disabled:opacity-50"
+          >
+            <XCircle size={16} aria-hidden="true" />
+            {mobile ? "Decline" : null}
+          </button>
+
+          {pendingId === refund.id && (
+            <span className="text-xs text-[#737A74]">
+              Updating…
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -272,23 +410,62 @@ function AdminRefunds() {
         title="Refunds"
         description="Review refund requests and record gateway completion."
       />
+
       <AdminNotice notice={notice} onClose={clear} />
+
       <AdminPanel>
-        <div className="border-b border-[#E3E5DF] p-4">
+        {/* Search and status filter */}
+        <div className="flex flex-col gap-3 border-b border-[#E3E5DF] p-4 sm:flex-row">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={18}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+            />
+
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Search refund, order, customer or email..."
+              aria-label="Search refunds"
+              className="w-full rounded-xl border border-gray-300 bg-white py-3 pl-10 pr-10 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20"
+            />
+
+            {search && (
+              <button
+                type="button"
+                aria-label="Clear refund search"
+                onClick={() => {
+                  setSearch("");
+                  setPage(1);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-900"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+
           <select
             aria-label="Filter refund status"
-            className="field max-w-56"
+            className="field w-full sm:max-w-56"
             value={filter}
             onChange={changeFilter}
           >
             <option value="">All refund statuses</option>
-            {refundStatuses.map((x) => (
-              <option key={x} value={x}>
-                {x}
+
+            {refundStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status.charAt(0).toUpperCase() + status.slice(1)}
               </option>
             ))}
           </select>
         </div>
+
         {loading ? (
           <div className="px-5 py-8 text-sm text-[#737A74]">
             Loading refunds…
@@ -298,6 +475,7 @@ function AdminRefunds() {
             <div role="alert" className="text-sm text-[#8b4033]">
               {loadError}
             </div>
+
             <button
               type="button"
               onClick={retry}
@@ -306,90 +484,197 @@ function AdminRefunds() {
               Retry
             </button>
           </div>
-        ) : rows.length ? (
-          <AdminTable
-            headers={[
-              "Refund",
-              "Order",
-              "Customer",
-              "Amount",
-              "Reason",
-              "Status",
-              "Requested",
-              "Actions",
-            ]}
-          >
-            {rows.map((r) => (
-              <tr key={r.id}>
-                <td className="px-5 py-4 font-medium">#{r.id}</td>
-                <td className="px-5 py-4">#{r.order_id}</td>
-                <td className="px-5 py-4">
-                <div className="font-medium">
-                  {r.customer_name || "Customer"}
-                </div>
-                <div className="mt-1 text-xs text-[#737A74]">
-                  {r.customer_email || "—"}
-                </div>
-              </td>
-                <td className="px-5 py-4">{formatMoney(r.amount)}</td>
-                <td className="max-w-xs truncate px-5 py-4">
-                  {r.reason || "—"}
-                </td>
-                <td className="px-5 py-4">
-                  <Badge>{r.status}</Badge>
-                </td>
-                <td className="px-5 py-4">{formatDate(r.requested_at)}</td>
-                <td className="px-5 py-4">
-                  <button
-                    type="button"
-                    aria-label={`View refund ${r.id}`}
-                    onClick={(event) => {
-                      triggerRef.current = event.currentTarget;
-                      openDetail(r);
-                    }}
-                    className="cursor-pointer rounded-lg p-2 hover:bg-[#DCE7DE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]"
-                  >
-                    <Eye size={16} aria-hidden="true" />
-                  </button>
-                  {r.status === "requested" && (
-                    <button
-                      type="button"
-                      disabled={pendingId === r.id}
-                      className="ml-1 cursor-pointer rounded-lg p-2 text-[#486B57] hover:bg-[#DCE7DE] disabled:opacity-50"
-                      aria-label={`Approve refund ${r.id}`}
-                      onClick={() => approve(r)}
-                    >
-                      <Check size={16} aria-hidden="true" />
-                    </button>
-                  )}
-                  {r.status === "requested" && (
-                    <button
-                      type="button"
-                      disabled={pendingId === r.id}
-                      className="ml-1 cursor-pointer rounded-lg p-2 text-[#8b4033] hover:bg-red-50 disabled:opacity-50"
-                      aria-label={`Decline refund ${r.id}`}
-                      onClick={() => reject(r)}
-                    >
-                      <XCircle size={16} aria-hidden="true" />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </AdminTable>
+        ) : filteredRows.length ? (
+          <>
+            {/* Mobile refund cards */}
+            <div className="space-y-3 p-3 xl:hidden">
+              {visibleRows.map((refund) => (
+                <article
+                  key={refund.id}
+                  className="min-w-0 rounded-xl border border-[#E3E5DF] p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold">
+                        Refund #{refund.id}
+                      </h3>
+
+                      <p className="mt-1 text-xs text-[#737A74]">
+                        Order #{refund.order_id}
+                      </p>
+                    </div>
+
+                    <Badge>{refund.status}</Badge>
+                  </div>
+
+                  <div className="mt-3 space-y-1 text-sm">
+                    <p className="break-words font-medium">
+                      {refund.customer_name || "Customer"}
+                    </p>
+
+                    <p className="break-all text-xs text-[#737A74]">
+                      {refund.customer_email || "—"}
+                    </p>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#E3E5DF] pt-3">
+                    <div>
+                      <p className="text-xs text-[#737A74]">
+                        Amount
+                      </p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {formatMoney(refund.amount)}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs text-[#737A74]">
+                        Requested
+                      </p>
+                      <p className="mt-1 text-sm">
+                        {formatDate(refund.requested_at)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="mt-3 break-words text-sm text-[#737A74]">
+                    <span className="font-medium text-[#333]">
+                      Reason:{" "}
+                    </span>
+                    {refund.reason || "—"}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap justify-end gap-1 border-t border-[#E3E5DF] pt-3">
+                    {renderActions(refund, true)}
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            {/* Desktop refunds table */}
+            <div className="hidden xl:block">
+              <AdminTable
+                headers={[
+                  "Refund",
+                  "Order",
+                  "Customer",
+                  "Amount",
+                  "Reason",
+                  "Status",
+                  "Requested",
+                  "Actions",
+                ]}
+              >
+                {visibleRows.map((refund) => (
+                  <tr key={refund.id}>
+                    <td className="px-5 py-4 font-medium">
+                      #{refund.id}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      #{refund.order_id}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <div className="font-medium">
+                        {refund.customer_name || "Customer"}
+                      </div>
+
+                      <div className="mt-1 break-all text-xs text-[#737A74]">
+                        {refund.customer_email || "—"}
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      {formatMoney(refund.amount)}
+                    </td>
+
+                    <td className="max-w-xs truncate px-5 py-4">
+                      {refund.reason || "—"}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <Badge>{refund.status}</Badge>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      {formatDate(refund.requested_at)}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      {renderActions(refund)}
+                    </td>
+                  </tr>
+                ))}
+              </AdminTable>
+            </div>
+
+            {/* Pagination */}
+            <div className="flex flex-col gap-3 border-t border-[#E3E5DF] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-[#737A74] sm:text-sm">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+                {Math.min(
+                  currentPage * PAGE_SIZE,
+                  filteredRows.length,
+                )}{" "}
+                of {filteredRows.length} refund requests
+              </p>
+
+              <div className="flex items-center justify-between gap-3 sm:justify-end">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1 || loading}
+                  onClick={() =>
+                    setPage((current) => current - 1)
+                  }
+                  className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[#E3E5DF] px-3 text-sm disabled:opacity-40"
+                >
+                  <ChevronLeft size={16} />
+                  Previous
+                </button>
+
+                <span className="whitespace-nowrap text-xs text-[#737A74]">
+                  {currentPage} / {pageCount}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount || loading}
+                  onClick={() =>
+                    setPage((current) => current + 1)
+                  }
+                  className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-[#E3E5DF] px-3 text-sm disabled:opacity-40"
+                >
+                  Next
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          </>
         ) : (
-          <AdminEmpty>No refund requests for this filter.</AdminEmpty>
+          <AdminEmpty>
+            {search.trim()
+              ? `No refunds match "${search.trim()}".`
+              : filter
+                ? "No refund requests for this filter."
+                : "No refund requests found."}
+          </AdminEmpty>
         )}
       </AdminPanel>
-      <p className="mt-4 text-xs text-[#737A74]">
-        Declining a refund notifies the customer. Completing a refund requires a
-        genuine {detail?.payment_method?.toLowerCase() === "cod"
-        ? "Manual bank/UPI transfer reference"
-        : "Gateway refund reference"}; do not enter a placeholder.
+
+      <p className="mt-4 text-xs leading-5 text-[#737A74]">
+        Declining a refund notifies the customer. Completing a refund
+        requires a genuine{" "}
+        {detail?.payment_method?.toLowerCase() === "cod"
+          ? "manual bank/UPI transfer reference"
+          : "gateway refund reference"}
+        ; do not enter a placeholder.
       </p>
+
+      {/* Refund details modal */}
       {detail && (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-4"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-3 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="refund-modal-title"
@@ -397,50 +682,61 @@ function AdminRefunds() {
           <section
             ref={modalRef}
             tabIndex={-1}
-            className="w-full max-w-md rounded-2xl bg-white p-6"
+            className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 outline-none sm:p-6"
           >
-            <div className="flex justify-between">
+            <div className="flex items-start justify-between gap-3">
               <h2
                 id="refund-modal-title"
                 className="text-xl font-semibold"
               >
                 Refund #{detail.id}
               </h2>
+
               <button
                 type="button"
                 disabled={busy}
                 onClick={closeDetail}
-                className="cursor-pointer text-sm text-[#486B57] disabled:opacity-50"
+                className="shrink-0 rounded-lg px-2 py-1 text-sm text-[#486B57] hover:bg-[#F5F5F1] disabled:opacity-50"
               >
                 Close
               </button>
             </div>
+
             <dl className="mt-5 space-y-3 text-sm">
-              <div className="flex justify-between">
+              <div className="flex justify-between gap-4">
                 <dt className="text-[#737A74]">Order</dt>
                 <dd>#{detail.order_id}</dd>
               </div>
-              <div className="flex justify-between">
+
+              <div className="flex justify-between gap-4">
                 <dt className="text-[#737A74]">Amount</dt>
                 <dd>{formatMoney(detail.amount)}</dd>
               </div>
-              <div className="flex justify-between">
+
+              <div className="flex justify-between gap-4">
                 <dt className="text-[#737A74]">Payment</dt>
-                <dd>{detail.payment_id != null ? `#${detail.payment_id}` : "—"}</dd>
+                <dd>
+                  {detail.payment_id != null
+                    ? `#${detail.payment_id}`
+                    : "—"}
+                </dd>
               </div>
+
               <div className="flex justify-between gap-4">
                 <dt className="text-[#737A74]">Payment method</dt>
                 <dd className="text-right">
                   {formatPaymentMethod(detail.payment_method)}
                 </dd>
               </div>
+
               <div>
                 <dt className="text-[#737A74]">Gateway payment ID</dt>
                 <dd className="mt-1 break-all font-mono text-xs">
                   {detail.gateway_payment_id || "Not available"}
                 </dd>
               </div>
-              <div className="flex justify-between">
+
+              <div className="flex justify-between gap-4">
                 <dt className="text-[#737A74]">Status</dt>
                 <dd>
                   <Badge>{detail.status}</Badge>
@@ -448,19 +744,22 @@ function AdminRefunds() {
               </div>
               <div>
                 <dt className="text-[#737A74]">Reason</dt>
-                <dd className="mt-1">{detail.reason || "—"}</dd>
+                <dd className="mt-1 break-words">
+                  {detail.reason || "—"}
+                </dd>
               </div>
               {detail.decision_note && (
                 <div>
-                  <dt className="text-[#737A74]">Admin decision note</dt>
-                  <dd className="mt-1 whitespace-pre-wrap">
+                  <dt className="text-[#737A74]">
+                    Admin decision note
+                  </dt>
+                  <dd className="mt-1 whitespace-pre-wrap break-words">
                     {detail.decision_note}
                   </dd>
                 </div>
               )}
               <div>
                 <dt className="text-[#737A74]">Selected items</dt>
-
                 <dd className="mt-2">
                   {detail.refund_items?.length ? (
                     <ul className="space-y-2">
@@ -469,7 +768,7 @@ function AdminRefunds() {
                           key={item.id}
                           className="flex justify-between gap-4"
                         >
-                          <span>
+                          <span className="break-words">
                             {item.product_name} × {item.quantity}
                           </span>
 
@@ -488,14 +787,22 @@ function AdminRefunds() {
               </div>
               {detail.gateway_refund_id && (
                 <div>
-                  <dt className="text-[#737A74]">Gateway refund ID</dt>
-                  <dd className="mt-1">{detail.gateway_refund_id}</dd>
+                  <dt className="text-[#737A74]">
+                    Gateway refund ID
+                  </dt>
+                  <dd className="mt-1 break-all font-mono text-xs">
+                    {detail.gateway_refund_id}
+                  </dd>
                 </div>
               )}
               {detail.manual_refund_reference && (
                 <div>
-                  <dt>Manual transfer reference</dt>
-                  <dd>{detail.manual_refund_reference}</dd>
+                  <dt className="text-[#737A74]">
+                    Manual transfer reference
+                  </dt>
+                  <dd className="mt-1 break-all font-mono text-xs">
+                    {detail.manual_refund_reference}
+                  </dd>
                 </div>
               )}
             </dl>
@@ -510,9 +817,12 @@ function AdminRefunds() {
                     : "Gateway refund reference"}
                   <input
                     required
-                    className="field mt-2"
+                    disabled={busy}
+                    className="field mt-2 w-full"
                     value={gatewayId}
-                    onChange={(e) => setGatewayId(e.target.value)}
+                    onChange={(event) =>
+                      setGatewayId(event.target.value)
+                    }
                     placeholder={
                       detail?.payment_method?.toLowerCase() === "cod"
                         ? "Enter actual bank/UPI transfer reference"
@@ -523,9 +833,11 @@ function AdminRefunds() {
                 <button
                   type="submit"
                   disabled={busy || !gatewayId.trim()}
-                  className="button-primary mt-4 w-full cursor-pointer"
+                  className="button-primary mt-4 w-full cursor-pointer disabled:opacity-50"
                 >
-                  {busy ? "Updating…" : "Record completed refund"}
+                  {busy
+                    ? "Updating…"
+                    : "Record completed refund"}
                 </button>
               </form>
             )}

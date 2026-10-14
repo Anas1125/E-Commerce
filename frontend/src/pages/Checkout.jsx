@@ -2446,7 +2446,7 @@ function CheckoutContent() {
                         </div>
                       ) : (
                         <>
-                          <div className="flex flex-col gap-2 sm:flex-row">
+                          <div className="flex min-w-0 gap-2">
                             <input
                               aria-label="Coupon code"
                               value={coupon}
@@ -2461,16 +2461,14 @@ function CheckoutContent() {
                                 }
                               }}
                               placeholder="Enter coupon code"
-                              className="h-12 flex-1 rounded-md border border-[#D0D0D0] px-4 text-sm uppercase outline-none transition focus:border-[#2874F0] focus:ring-1 focus:ring-[#2874F0] disabled:opacity-50"
+                              className="h-11 min-w-0 flex-1 rounded-lg border border-[#D6DCE5] bg-[#F8FAFC] px-3 text-sm text-[#212121] outline-none transition placeholder:text-[#9299A5] focus:border-[#2874F0] focus:bg-white focus:ring-2 focus:ring-[#2874F0]/15 disabled:opacity-50"
                             />
 
                             <button
                               type="button"
                               onClick={() => applyCoupon()}
-                              disabled={
-                                locked || couponLoading || !coupon.trim()
-                              }
-                              className="h-12 cursor-pointer rounded-md border border-[#2874F0] px-7 text-sm font-bold text-[#2874F0] transition hover:bg-[#F5F9FF] disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={locked || couponLoading || !coupon.trim()}
+                              className="h-11 shrink-0 whitespace-nowrap rounded-lg bg-[#2874F0] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#1F65D6] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {couponLoading ? "Applying..." : "Apply"}
                             </button>

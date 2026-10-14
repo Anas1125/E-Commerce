@@ -163,20 +163,28 @@ function AdminDashboard() {
           </div>
         )
       )}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {stats.map(([title, value, Icon]) => (
-          <AdminPanel key={title} className="p-5">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-[#737A74]">{title}</p>
-              <Icon size={18} className="text-[#486B57]" aria-hidden="true" />
+          <AdminPanel key={title} className="p-3 sm:p-5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 pr-1 text-xs leading-4 text-[#737A74] sm:text-sm">
+                {title}
+              </p>
+
+              <Icon
+                size={18}
+                className="shrink-0 text-[#486B57]"
+                aria-hidden="true"
+              />
             </div>
-            <p className="mt-4 text-3xl font-semibold">
+
+            <p className="mt-3 text-2xl font-semibold sm:mt-4 sm:text-3xl">
               {loading ? "—" : (value ?? "—")}
             </p>
           </AdminPanel>
         ))}
       </div>
-      <div className="mt-7 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+      <div className="mt-7 grid gap-6 2xl:grid-cols-[1.5fr_1fr]">
         <AdminPanel>
           <div className="flex items-center justify-between border-b border-[#E3E5DF] px-5 py-4">
             <div>
@@ -193,31 +201,81 @@ function AdminDashboard() {
               <ArrowRight className="ml-1 inline" size={14} aria-hidden="true" />
             </Link>
           </div>
-          {recentOrders.length ? (
-            <AdminTable
-              headers={["Order", "Customer", "Date", "Total", "Status"]}
-            >
-              {recentOrders.map((o) => (
-                <tr key={o.id}>
-                  <td className="px-5 py-4 font-medium">{o.order_number}</td>
-                  <td className="px-5 py-4">{customerName(o.user)}</td>
-                  <td className="px-5 py-4 text-[#737A74]">
-                    {formatDate(o.created_at)}
-                  </td>
-                  <td className="px-5 py-4">
-                    ₹{Number(o.total_amount || 0).toLocaleString("en-IN")}
-                  </td>
-                  <td className="px-5 py-4">
-                    <Badge>{o.order_status}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </AdminTable>
-          ) : (
-            <AdminEmpty>
-              {loading ? "Loading orders…" : "No order data available."}
-            </AdminEmpty>
-          )}
+            {recentOrders.length ? (
+              <>
+                <div className="space-y-3 p-3 2xl:hidden">
+                  {recentOrders.map((o) => (
+                    <article
+                      key={o.id}
+                      className="min-w-0 rounded-xl border border-[#E3E5DF] bg-white p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-sm font-semibold text-[#212121]">
+                            {o.order_number || `Order #${o.id}`}
+                          </p>
+
+                          <p className="mt-1 break-words text-xs text-[#737A74]">
+                            {customerName(o.user)}
+                          </p>
+                        </div>
+
+                        <div className="shrink-0">
+                          <Badge>{o.order_status}</Badge>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[#E3E5DF] pt-3">
+                        <div className="min-w-0">
+                          <p className="text-xs text-[#737A74]">Order date</p>
+                          <p className="mt-1 text-sm font-medium text-[#212121]">
+                            {formatDate(o.created_at)}
+                          </p>
+                        </div>
+
+                        <div className="min-w-0 text-right">
+                          <p className="text-xs text-[#737A74]">Total</p>
+                          <p className="mt-1 text-sm font-semibold text-[#212121]">
+                            ₹{Number(o.total_amount || 0).toLocaleString("en-IN")}
+                          </p>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="hidden 2xl:block">
+                  <AdminTable
+                    headers={["Order", "Customer", "Date", "Total", "Status"]}
+                  >
+                    {recentOrders.map((o) => (
+                      <tr key={o.id}>
+                        <td className="px-5 py-4 font-medium">{o.order_number}</td>
+
+                        <td className="px-5 py-4">
+                          {customerName(o.user)}
+                        </td>
+
+                        <td className="px-5 py-4 text-[#737A74]">
+                          {formatDate(o.created_at)}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          ₹{Number(o.total_amount || 0).toLocaleString("en-IN")}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <Badge>{o.order_status}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </AdminTable>
+                </div>
+              </>
+            ) : (
+              <AdminEmpty>
+                {loading ? "Loading orders…" : "No order data available."}
+              </AdminEmpty>
+            )}
         </AdminPanel>
         <div className="space-y-6">
           <AdminPanel>
