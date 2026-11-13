@@ -24,6 +24,7 @@ from app.schemas.product_image import (
 )
 from app.models.inventory import Inventory
 from app.schemas.inventory import InventoryResponse, InventoryUpdate
+from app.services.storage import delete_file, save_file
 
 
 router = APIRouter(
@@ -65,7 +66,6 @@ def assign_product_brand(db: Session, product: Product, product_data: ProductCre
         raise HTTPException(status_code=400, detail="Brand is inactive")
     product.brand_record = brand
 
-PRODUCT_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "products"
 MAX_PRODUCT_IMAGE_SIZE = 10 * 1024 * 1024
 IMAGE_FORMATS = {
     ".jpg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
@@ -199,22 +199,27 @@ async def upload_product_image(
     if not signature_matches(contents):
         raise HTTPException(status_code=400, detail="The selected file is not a valid supported image")
 
-    PRODUCT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{uuid4().hex}{extension}"
-    destination = PRODUCT_UPLOADS_DIR / filename
     relative_url = f"/uploads/products/{filename}"
     public_base_url = os.getenv(
         "PUBLIC_API_URL",
         str(request.base_url).rstrip("/"),
     )
-    image = ProductImage(
-        product_id=product_id,
-        image_url=f"{public_base_url.rstrip('/')}{relative_url}",
-        is_primary=is_primary,
-        display_order=display_order,
-    )
+    stored_url = None
     try:
-        destination.write_bytes(contents)
+        stored_url = save_file(
+            "products",
+            filename,
+            contents,
+            content_type,
+            f"{public_base_url.rstrip('/')}{relative_url}",
+        )
+        image = ProductImage(
+            product_id=product_id,
+            image_url=stored_url,
+            is_primary=is_primary,
+            display_order=display_order,
+        )
         if is_primary:
             db.query(ProductImage).filter(
                 ProductImage.product_id == product_id,
@@ -225,7 +230,7 @@ async def upload_product_image(
         db.refresh(image)
     except Exception:
         db.rollback()
-        destination.unlink(missing_ok=True)
+        delete_file(stored_url, "products")
         raise
     finally:
         await file.close()

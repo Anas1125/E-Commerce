@@ -1,10 +1,12 @@
 import asyncio
+import hmac
+import os
 
-from app.services.payment_expiry import upi_order_expiry_loop
+from app.services.payment_expiry import run_upi_expiry_sweep, upi_order_expiry_loop
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -30,8 +32,18 @@ from app.routers.admin_admins import router as admin_admins_router
 from app.routers import admin_reviews
 from app.routers.notifications import router as notifications_router
 
+IS_SERVERLESS = bool(os.getenv("VERCEL"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Serverless platforms (Vercel) freeze the process between requests, so a
+    # background loop can't run there. The sweep is triggered via the
+    # /api/cron/expire-upi-orders endpoint instead.
+    if IS_SERVERLESS:
+        yield
+        return
+
     expiry_task = asyncio.create_task(upi_order_expiry_loop())
 
     try:
@@ -47,14 +59,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+if not IS_SERVERLESS:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+if UPLOADS_DIR.is_dir():
+    app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+
+EXTRA_CORS_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "https://e-commerce-3q5.pages.dev",
         "http://localhost:4173",
+        "https://g8bkm5ql-5173.inc1.devtunnels.ms",
+        *EXTRA_CORS_ORIGINS,
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -90,3 +112,16 @@ app.include_router(
 @app.get("/")
 def root():
     return {"message": "TerraLens E-Commerce API is running"}
+
+
+@app.get("/api/cron/expire-upi-orders")
+def cron_expire_upi_orders(authorization: str | None = Header(default=None)):
+    """Cancel abandoned UPI checkouts. Called by Vercel Cron / an external cron."""
+    secret = os.getenv("CRON_SECRET")
+
+    if not secret or not authorization or not hmac.compare_digest(
+        authorization, f"Bearer {secret}"
+    ):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return {"expired": run_upi_expiry_sweep()}

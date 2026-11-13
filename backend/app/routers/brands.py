@@ -1,4 +1,3 @@
-from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -11,16 +10,13 @@ from app.models.brand import Brand
 from app.models.product import Product
 from app.schemas.brand import BrandCreate, BrandResponse
 from app.services.dependencies import require_admin
+from app.services.storage import delete_file, save_file
 
 
 router = APIRouter(prefix="/api/brands", tags=["Brands"])
 
-BRAND_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "brands"
-BRAND_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
 UPLOAD_URL_PREFIX = "/uploads/brands/"
 MAX_LOGO_BYTES = 10 * 1024 * 1024
-CHUNK_SIZE = 1024 * 1024
 
 def _clean_name(name: str) -> str:
     cleaned = " ".join(name.split())
@@ -46,6 +42,14 @@ def _validate_logo_url(logo_url: str | None) -> str | None:
     )
 
 
+IMAGE_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
 def _detect_image_extension(header: bytes) -> str | None:
     if header.startswith(b"\xff\xd8\xff"):
         return ".jpg"
@@ -59,7 +63,7 @@ def _detect_image_extension(header: bytes) -> str | None:
 
 
 def _save_logo_file(file: UploadFile) -> str:
-    """Stream the upload to disk with a size cap. Returns the file name."""
+    """Read the upload with a size cap, store it, and return its URL."""
     header = file.file.read(16)
     extension = _detect_image_extension(header)
 
@@ -69,43 +73,28 @@ def _save_logo_file(file: UploadFile) -> str:
             detail="Upload a valid JPG, PNG, WebP or GIF image",
         )
 
+    contents = header + file.file.read(MAX_LOGO_BYTES + 1 - len(header))
+
+    if len(contents) > MAX_LOGO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Image must be 10 MB or smaller",
+        )
+
     filename = f"{uuid4().hex}{extension}"
-    file_path = BRAND_UPLOADS_DIR / filename
-    size = len(header)
 
-    try:
-        with file_path.open("wb") as buffer:
-            buffer.write(header)
-
-            while chunk := file.file.read(CHUNK_SIZE):
-                size += len(chunk)
-
-                if size > MAX_LOGO_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail="Image must be 10 MB or smaller",
-                    )
-
-                buffer.write(chunk)
-    except Exception:
-        file_path.unlink(missing_ok=True)
-        raise
-
-    return filename
+    return save_file(
+        "brands",
+        filename,
+        contents,
+        IMAGE_CONTENT_TYPES[extension],
+        f"{UPLOAD_URL_PREFIX}{filename}",
+    )
 
 
 def _delete_logo_file(logo_url: str | None) -> None:
-    """Delete a previously uploaded logo, only ever inside the brands folder."""
-    if not logo_url or not logo_url.startswith(UPLOAD_URL_PREFIX):
-        return
-
-    try:
-        path = (BRAND_UPLOADS_DIR / Path(logo_url).name).resolve()
-
-        if path.parent == BRAND_UPLOADS_DIR.resolve():
-            path.unlink(missing_ok=True)
-    except OSError:
-        pass
+    """Delete a previously uploaded logo (local brands folder or Vercel Blob)."""
+    delete_file(logo_url, "brands")
 
 @router.get("/", response_model=list[BrandResponse])
 def get_brands(db: Session = Depends(get_db)):
@@ -237,15 +226,15 @@ def upload_brand_logo(
         raise HTTPException(status_code=404, detail="Brand not found")
 
     old_logo = brand.logo_url
-    filename = _save_logo_file(file)
+    new_logo = _save_logo_file(file)
 
-    brand.logo_url = f"{UPLOAD_URL_PREFIX}{filename}"
+    brand.logo_url = new_logo
 
     try:
         db.commit()
     except Exception:
         db.rollback()
-        _delete_logo_file(f"{UPLOAD_URL_PREFIX}{filename}")
+        _delete_logo_file(new_logo)
         raise
 
     db.refresh(brand)

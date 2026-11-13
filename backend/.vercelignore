@@ -1,0 +1,11 @@
+.venv
+venv
+.env
+.pytest_cache
+__pycache__
+*.pyc
+tests
+uploads
+scripts
+alembic
+create_admin.py

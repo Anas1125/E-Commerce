@@ -23,12 +23,12 @@ from app.schemas.site_settings import (
     SiteSettingsResponse,
 )
 from app.services.dependencies import require_admin
+from app.services.storage import delete_file, save_file
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/site-settings", tags=["Site Settings"])
 
-BRANDING_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "branding"
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
 IMAGE_FORMATS = {
@@ -76,24 +76,11 @@ def get_or_create_settings(db: Session) -> SiteSettings:
     return settings
 
 
-def delete_local_branding_asset(url: str | None, keep: Path | None = None) -> None:
-    if not url or "/uploads/branding/" not in url:
+def delete_local_branding_asset(url: str | None, keep: str | None = None) -> None:
+    if not url or url == keep:
         return
 
-    filename = url.split("/uploads/branding/", maxsplit=1)[1].split("?", maxsplit=1)[0]
-
-    if not filename or Path(filename).name != filename:
-        return
-
-    candidate = BRANDING_UPLOADS_DIR / filename
-
-    if candidate == keep:
-        return
-
-    try:
-        candidate.unlink(missing_ok=True)
-    except OSError:
-        logger.exception("Could not delete old branding file %s", candidate)
+    delete_file(url, "branding")
 
 
 @router.get(
@@ -198,26 +185,25 @@ def upload_branding_asset(
             detail="The selected file is not a valid supported image",
         )
 
-    BRANDING_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
     filename = f"{uuid4().hex}{extension}"
-    destination = BRANDING_UPLOADS_DIR / filename
+    public_base_url = os.getenv("PUBLIC_API_URL") or str(request.base_url)
+    stored_url = None
     old_url = None
     committed = False
 
     try:
-        destination.write_bytes(contents)
+        stored_url = save_file(
+            "branding",
+            filename,
+            contents,
+            content_types[0],
+            f"{public_base_url.rstrip('/')}/uploads/branding/{filename}",
+        )
 
         settings = get_or_create_settings(db)
         old_url = getattr(settings, field_name)
 
-        public_base_url = os.getenv("PUBLIC_API_URL") or str(request.base_url)
-
-        setattr(
-            settings,
-            field_name,
-            f"{public_base_url.rstrip('/')}/uploads/branding/{filename}",
-        )
+        setattr(settings, field_name, stored_url)
 
         db.commit()
         committed = True
@@ -228,14 +214,14 @@ def upload_branding_asset(
         db.rollback()
 
         if not committed:
-            destination.unlink(missing_ok=True)
+            delete_local_branding_asset(stored_url)
 
         raise
 
     finally:
         file.file.close()
 
-    delete_local_branding_asset(old_url, keep=destination)
+    delete_local_branding_asset(old_url, keep=stored_url)
 
     logger.info("Branding asset '%s' replaced by admin %s", asset_name, current_admin.id)
 

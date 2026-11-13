@@ -15,6 +15,7 @@ from app.models.category import Category
 from app.models.product import Product
 from app.schemas.category import CategoryCreate, CategoryResponse
 from app.services.dependencies import require_admin
+from app.services.storage import delete_file, save_file
 
 
 router = APIRouter(
@@ -22,7 +23,6 @@ router = APIRouter(
     tags=["Categories"],
 )
 
-CATEGORY_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "categories"
 UPLOAD_PATH_PREFIX = "/uploads/categories/"
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -87,22 +87,7 @@ def _validate_image_url(image_url: str | None) -> str | None:
 
 
 def _delete_image_file(image_url: str | None) -> None:
-    if not image_url:
-        return
-
-    path_part = urlparse(image_url).path
-
-    if not path_part.startswith(UPLOAD_PATH_PREFIX):
-        return
-
-    try:
-        # .name drops any directory parts, so ../ tricks can't escape
-        path = (CATEGORY_UPLOADS_DIR / Path(path_part).name).resolve()
-
-        if path.parent == CATEGORY_UPLOADS_DIR.resolve():
-            path.unlink(missing_ok=True)
-    except OSError:
-        pass
+    delete_file(image_url, "categories")
 
 
 def _ensure_unique(
@@ -159,33 +144,24 @@ async def upload_category_image(
     if not signature_matches(contents):
         raise HTTPException(status_code=400, detail="The selected file is not a valid supported image")
 
-    CATEGORY_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{uuid4().hex}{extension}"
-
-    
-    file_path = CATEGORY_UPLOADS_DIR / filename
+    public_base_url = os.getenv(
+        "PUBLIC_API_URL",
+        str(request.base_url).rstrip("/"),
+    )
+    local_url = f"{public_base_url.rstrip('/')}{UPLOAD_PATH_PREFIX}{filename}"
 
     try:
-        await run_in_threadpool(file_path.write_bytes, contents)
-    except OSError:
-        file_path.unlink(missing_ok=True)
+        image_url = await run_in_threadpool(
+            save_file, "categories", filename, contents, content_type, local_url
+        )
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to save category image",
         )
 
-
-    public_base_url = os.getenv(
-        "PUBLIC_API_URL",
-        str(request.base_url).rstrip("/"),
-    )
-
-    return {
-        "image_url": (
-            f"{public_base_url.rstrip('/')}"
-            f"{UPLOAD_PATH_PREFIX}{filename}"
-        )
-    }
+    return {"image_url": image_url}
 
 
 @router.get("/", response_model=list[CategoryResponse])
