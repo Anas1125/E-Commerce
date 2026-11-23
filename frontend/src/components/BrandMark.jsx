@@ -14,7 +14,7 @@ function BrandMark({
 }) {
   const branding = useContext(SiteBrandingContext) || {};
 
-  const { siteName = "TerraLens" } = branding;
+  const { siteName } = branding;
 
   const logoUrl =
     logoType === "footer"

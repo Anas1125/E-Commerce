@@ -5,6 +5,8 @@ from html import escape
 import resend
 from dotenv import load_dotenv
 
+from app.services.site_branding import get_site_name
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -147,8 +149,9 @@ def send_low_stock_notification(
     available_quantity: int,
     quantity: int,
     reserved_quantity: int,
-    site_name: str = "TerraLens",
+    site_name: str | None = None,
 ) -> None:
+    site_name = site_name or get_site_name()
     send_admin_notification(
         subject=f"⚠️ Low stock — {product_name}",
         html=_stock_alert_html(
@@ -178,8 +181,9 @@ def send_out_of_stock_notification(
     product_name: str,
     quantity: int,
     reserved_quantity: int,
-    site_name: str = "TerraLens",
+    site_name: str | None = None,
 ) -> None:
+    site_name = site_name or get_site_name()
     send_admin_notification(
         subject=f"🚨 Out of stock — {product_name}",
         html=_stock_alert_html(

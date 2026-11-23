@@ -1,3 +1,5 @@
+import { useContext } from "react";
+import { SiteBrandingContext } from "../context/site-branding-context";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
@@ -155,11 +157,12 @@ export function CategoryCard({ category, image }) {
   );
 }
 
-export function WhyTerraLens() {
+export function WhyShopWithUs() {
+  const { siteName } = useContext(SiteBrandingContext);
   return (
     <section className="border-y border-[#E3E5DF] bg-white py-16">
       <div className="mx-auto max-w-7xl px-6">
-        <SectionTitle eyebrow="The TerraLens way" title="Why TerraLens?" />
+        <SectionTitle eyebrow={`The ${siteName} way`} title={`Why ${siteName}?`} />
         <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-4">
           {whyBlocks.map(({ Icon, title, copy }) => (
             <div key={title}>

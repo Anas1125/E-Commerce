@@ -159,7 +159,7 @@ const mapBackendFieldErrors = (detail) => {
 
 function Register() {
   const branding = useContext(SiteBrandingContext) || {};
-  const { siteName = "TerraLens" } = branding;
+  const { siteName } = branding;
 
   const { isAuthenticated } = useAuth();
 

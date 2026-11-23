@@ -14,7 +14,7 @@ import {
 
 import useAdminNotice from "../hooks/useAdminNotice";
 
-const DEFAULT_SITE_NAME = "TerraLens";
+const DEFAULT_SITE_NAME = "Store";
 const DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -77,6 +77,8 @@ function AdminSiteSettings() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [siteName, setSiteName] = useState(DEFAULT_SITE_NAME);
+  const [supportEmail, setSupportEmail] = useState("");
+  const [savingSupportEmail, setSavingSupportEmail] = useState(false);
   const [savingSiteName, setSavingSiteName] = useState(false);
 
   const { notice, notify, clear } = useAdminNotice();
@@ -108,6 +110,7 @@ function AdminSiteSettings() {
         if (cancelled) return;
         const data = response.data || {};
         setSettings(data);
+        setSupportEmail(data.support_email || "");
         setSiteName(data.site_name || DEFAULT_SITE_NAME);
         setLoadError("");
       })
@@ -229,6 +232,25 @@ function AdminSiteSettings() {
       );
     } finally {
       setSavingSiteName(false);
+    }
+  };
+
+  const saveSupportEmail = async (event) => {
+    event.preventDefault();
+    if (savingSupportEmail) return;
+    setSavingSupportEmail(true);
+    try {
+      const response = await api.patch("/site-settings/support-email", {
+        support_email: supportEmail.trim() || null,
+      });
+      setSettings(response.data);
+      setSupportEmail(response.data.support_email || "");
+      await syncBranding();
+      notify("Support email saved.", "success");
+    } catch (error) {
+      notify(apiErrorMessage(error, "Unable to update support email."), "error");
+    } finally {
+      setSavingSupportEmail(false);
     }
   };
 
@@ -386,6 +408,23 @@ function AdminSiteSettings() {
                 className="button-primary inline-flex cursor-pointer items-center justify-center gap-2 sm:min-w-32 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#486B57]"
               >
                 {savingSiteName ? "Saving…" : "Save name"}
+              </button>
+            </form>
+          </AdminPanel>
+
+          <AdminPanel className="p-5 sm:p-6">
+            <h2 className="font-semibold">Support email</h2>
+            <p className="mt-1 text-sm text-[#737A74]">Used on the contact page, footer, and legal pages.</p>
+            <form onSubmit={saveSupportEmail} className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label htmlFor="support-email" className="mb-2 block text-sm font-medium">Email address</label>
+                <input id="support-email" type="email" maxLength={320}
+                  value={supportEmail} onChange={(event) => setSupportEmail(event.target.value)}
+                  className="w-full rounded-xl border border-[#D8DDD7] px-4 py-3" />
+              </div>
+              <button type="submit" className="button-primary"
+                disabled={savingSupportEmail || supportEmail.trim() === (settings.support_email || "")}>
+                {savingSupportEmail ? "Saving…" : "Save email"}
               </button>
             </form>
           </AdminPanel>

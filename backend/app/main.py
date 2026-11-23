@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TerraLens E-Commerce API",
+    title="E-Commerce API",
     lifespan=lifespan,
 )
 UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
@@ -111,7 +111,8 @@ app.include_router(
 
 @app.get("/")
 def root():
-    return {"message": "TerraLens E-Commerce API is running"}
+    from app.services.site_branding import get_site_name
+    return {"message": f"{get_site_name()} E-Commerce API is running"}
 
 
 @app.get("/api/cron/expire-upi-orders")

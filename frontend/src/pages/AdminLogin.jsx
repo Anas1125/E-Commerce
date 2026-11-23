@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Leaf } from "lucide-react";
 import { Navigate, useLocation } from "react-router-dom";
 import api from "../services/api";
 import useAuth from "../context/useAuth";
 import BrandMark from "../components/BrandMark";
+
+import { SiteBrandingContext } from "../context/site-branding-context";
 
 const GENERIC_ERROR = "Unable to sign in.";
 
@@ -28,6 +30,7 @@ function getRedirectTarget(from) {
 }
 
 function AdminLogin() {
+  const { siteName } = useContext(SiteBrandingContext);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -116,7 +119,7 @@ function AdminLogin() {
     <div className="mx-auto grid min-h-[650px] max-w-5xl items-center gap-8 px-6 py-12 md:grid-cols-2">
       <section className="rounded-3xl bg-[#DCE7DE] p-9 sm:p-12">
         <BrandMark />
-        <p className="eyebrow mt-16">TerraLens operations</p>
+        <p className="eyebrow mt-16">{siteName} operations</p>
         <h1 className="mt-3 text-3xl font-semibold">
           A considered way to manage your store.
         </h1>

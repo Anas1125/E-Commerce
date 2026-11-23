@@ -159,7 +159,7 @@ function OrderSuccess() {
   const { id: paramId } = useParams();
 
   const branding = useContext(SiteBrandingContext) || {};
-  const { siteName = "TerraLens" } = branding;
+  const { siteName } = branding;
 
   const stateOrder = state?.order || null;
 

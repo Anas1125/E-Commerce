@@ -59,7 +59,7 @@ function getRedirectTarget(from) {
 }
 
 function Login() {
-  const { siteName = "TerraLens" } =
+  const { siteName } =
     useContext(SiteBrandingContext) || {};
 
   const [email, setEmail] = useState("");

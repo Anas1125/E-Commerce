@@ -188,7 +188,7 @@ function ResetPassword() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const { siteName = "TerraLens" } =
+  const { siteName } =
     useContext(SiteBrandingContext) || {};
 
   const [token, setToken] = useState(() =>

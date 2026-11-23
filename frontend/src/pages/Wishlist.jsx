@@ -39,7 +39,7 @@ function getAvailableStock(product) {
 
 
 function Wishlist() {
-  const { siteName = "TerraLens" } = useContext(SiteBrandingContext);
+  const { siteName } = useContext(SiteBrandingContext);
 
   const { isAuthenticated, refreshCounts } = useAuth();
 

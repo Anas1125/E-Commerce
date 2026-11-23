@@ -197,7 +197,7 @@ function OrderDetails({ id }) {
   const { isAuthenticated } = useAuth();
 
   const branding = useContext(SiteBrandingContext) || {};
-  const { siteName = "TerraLens" } = branding;
+  const { siteName } = branding;
 
   const [order, setOrder] = useState(null);
   const [history, setHistory] = useState([]);

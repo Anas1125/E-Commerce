@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 DEFAULT_SITE_NAME = "TerraLens"
 
@@ -11,6 +11,8 @@ class SiteSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     site_name: str = Field(default=DEFAULT_SITE_NAME, max_length=150)
+
+    support_email: str | None = None
 
     navbar_logo_url: str | None = None
     hero_image_url: str | None = None
@@ -38,3 +40,8 @@ class SiteNameUpdate(BaseModel):
             raise ValueError("site_name must not contain control characters")
 
         return value
+
+class SupportEmailUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    support_email: EmailStr | None = None

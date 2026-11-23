@@ -135,13 +135,14 @@ def test_success_notification_sends_admin_and_customer_emails(monkeypatch):
         send_customer,
     )
 
+    monkeypatch.setattr(service, "get_site_name", lambda: "Custom Store")
     service._notify_payment_succeeded(order, user)
 
     send_admin.assert_called_once()
     send_customer.assert_called_once()
 
     assert send_admin.call_args.kwargs["subject"].startswith(
-        "New paid TerraLens order"
+        "New paid Custom Store order"
     )
     assert send_customer.call_args.kwargs["email"] == (
         "customer@example.com"

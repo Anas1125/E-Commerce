@@ -11,6 +11,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.services.site_branding import get_site_name
 from app.database import get_db
 from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
@@ -100,6 +101,7 @@ def _notify_admin_new_customer(
     created_at: datetime | None,
 ) -> None:
 
+    site_name = get_site_name()
     name = html.escape(customer_name)
     safe_email = html.escape(email or "")
     safe_phone = html.escape(phone_number or "—")
@@ -139,14 +141,14 @@ def _notify_admin_new_customer(
             </div>
 
             <p style="margin-top: 24px; font-size: 13px; color: #737A74;">
-                This customer is now available in the TerraLens admin panel.
+                This customer is now available in the {html.escape(site_name)} admin panel.
             </p>
         </div>
     """
 
     try:
         send_admin_notification(
-            subject=f"👤 TerraLens new customer — {subject_name}",
+            subject=f"👤 {site_name} new customer — {subject_name}",
             html=body,
         )
     except Exception:

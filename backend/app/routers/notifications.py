@@ -1,9 +1,11 @@
 import logging
 import threading
 import time
+from html import escape
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.services.site_branding import get_site_name
 from app.services.dependencies import require_admin
 from app.services.notifications import send_admin_notification
 
@@ -28,11 +30,11 @@ TEST_EMAIL_HTML = """
     "
 >
     <h2 style="color: #486B57;">
-        TerraLens Notification Test
+        {site_name} Notification Test
     </h2>
 
     <p>
-        Your TerraLens email notification
+        Your {site_name} email notification
         system is working.
     </p>
 
@@ -67,12 +69,13 @@ def _claim_send_slot() -> None:
     dependencies=[Depends(require_admin)],
 )
 def test_notification():
+    site_name = get_site_name()
     _claim_send_slot()
 
     try:
         result = send_admin_notification(
-            subject="🧪 TerraLens notification test",
-            html=TEST_EMAIL_HTML,
+            subject=f"🧪 {site_name} notification test",
+            html=TEST_EMAIL_HTML.format(site_name=escape(site_name)),
         )
     except Exception:
         logger.exception("Test notification failed")

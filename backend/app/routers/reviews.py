@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.services.site_branding import get_site_name
 from app.database import get_db
 from app.models.order import Order
 from app.models.order_item import OrderItem
@@ -120,11 +121,12 @@ def _notify_new_review(
     comment: str | None,
 ) -> None:
 
+    site_name = get_site_name()
     try:
         stars = "⭐" * max(0, min(5, int(rating)))
 
         send_admin_notification(
-            subject=f"⭐ TerraLens new review — {escape(product_name)}",
+            subject=f"⭐ {site_name} new review — {escape(product_name)}",
             html=f"""
             <div style="font-family: Arial, sans-serif; max-width: 680px; margin: 0 auto; padding: 28px; color: #1F2521;">
                 <div style="padding-bottom: 20px; border-bottom: 1px solid #E3E5DF;">
@@ -157,7 +159,7 @@ def _notify_new_review(
                 </div>
 
                 <p style="margin-top: 24px; font-size: 13px; color: #737A74;">
-                    Review this submission from the TerraLens admin panel.
+                    Review this submission from the {escape(site_name)} admin panel.
                 </p>
             </div>
             """,

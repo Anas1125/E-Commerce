@@ -82,7 +82,7 @@ function SEO({
   const branding = useContext(SiteBrandingContext) ?? {};
   const { pathname } = useLocation();
 
-  const siteName = branding.siteName || "TerraLens";
+  const siteName = branding.siteName;
   const heroImageUrl = branding.heroImageUrl || "";
 
   const structuredDataJson = structuredData

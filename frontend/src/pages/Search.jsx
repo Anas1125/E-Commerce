@@ -34,7 +34,7 @@ function getInlineImageUrl(product) {
 }
 
 function Search() {
-  const { siteName = "TerraLens" } = useContext(SiteBrandingContext);
+  const { siteName } = useContext(SiteBrandingContext);
 
   const [params, setParams] = useSearchParams();
 

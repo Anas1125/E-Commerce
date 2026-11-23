@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.services.site_branding import get_site_name
 from app.models.cart import Cart
 from app.models.inventory import Inventory
 from app.models.order import Order
@@ -37,6 +38,7 @@ _REFUNDED_STATUSES = {"refunded", "partially_refunded"}
 
 def _notify_payment_succeeded(order: Order, user: User) -> None:
     """Send order confirmation emails after a successful payment commit."""
+    site_name = get_site_name()
     try:
         order_number = escape(order.order_number)
         customer_name = escape(
@@ -57,7 +59,7 @@ def _notify_payment_succeeded(order: Order, user: User) -> None:
         )
 
         send_admin_notification(
-            subject=f"New paid TerraLens order — {order.order_number}",
+            subject=f"New paid {site_name} order — {order.order_number}",
             html=f"""
                 <h2>New paid order</h2>
                 <p><b>Order:</b> {order_number}</p>

@@ -289,7 +289,7 @@ function Addresses() {
   const { isAuthenticated } = useAuth();
 
   const branding = useContext(SiteBrandingContext) || {};
-  const { siteName = "TerraLens" } = branding;
+  const { siteName } = branding;
 
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);

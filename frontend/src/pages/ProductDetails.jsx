@@ -93,7 +93,7 @@ const scoreProduct = (item, product) => {
 };
 
 function ProductDetailsContent({ id }) {
-  const { siteName = "TerraLens" } =
+  const { siteName } =
     useContext(SiteBrandingContext) || {};
 
   const {

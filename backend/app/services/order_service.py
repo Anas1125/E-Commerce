@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.services.site_branding import get_site_name
 from app.models.address import Address
 from app.models.cart import Cart
 from app.models.cart_item import CartItem
@@ -43,12 +44,13 @@ def _notify_customer_order_status(
     user: User | None = None,
 ) -> None:
     """Notify the customer after an order status has been committed."""
+    site_name = get_site_name()
 
     messages = {
         "confirmed": (
             "Order confirmed",
             "Your order has been confirmed.",
-            "We've confirmed your TerraLens order and it is queued "
+            f"We've confirmed your {site_name} order and it is queued "
             "for preparation.",
         ),
         "processing": (
@@ -72,12 +74,12 @@ def _notify_customer_order_status(
             "Your order has been delivered",
             "Your order has been delivered.",
             "Your order has been marked as delivered. Thank you "
-            "for shopping with TerraLens.",
+            f"for shopping with {site_name}.",
         ),
         "cancelled": (
             "Your order has been cancelled",
             "Your order has been cancelled.",
-            "Your TerraLens order has been cancelled. Any eligible "
+            f"Your {site_name} order has been cancelled. Any eligible "
             "refund is handled separately through the refund process.",
         ),
     }
@@ -180,7 +182,7 @@ def _notify_customer_order_status(
                 font-size: 13px;
                 color: #737A74;
             ">
-                This is an automated TerraLens order update.
+                This is an automated {escape(site_name)} order update.
             </p>
         </div>
     """
@@ -192,7 +194,7 @@ def _notify_customer_order_status(
         f"Order: {order.order_number}\n"
         f"Status: {new_status.replace('_', ' ').title()}\n"
         f"Order total: ₹{order.total_amount:,.2f}\n\n"
-        "This is an automated TerraLens order update."
+        f"This is an automated {site_name} order update."
     )
 
     try:
@@ -262,6 +264,7 @@ def create_order(
     db: Session,
 ) -> Order:
 
+    site_name = get_site_name()
     if order_data.idempotency_key:
         db.scalar(
             select(User.id)
@@ -710,7 +713,7 @@ def create_order(
 
         if order.payment_method == "cod":
             send_admin_notification(
-                subject=f"🛒 New TerraLens order — {order.order_number}",
+                subject=f"🛒 New {site_name} order — {order.order_number}",
                 html=f"""
                     <div
                         style="
@@ -733,7 +736,7 @@ def create_order(
                                     color: #486B57;
                                 "
                             >
-                                🛒 New TerraLens Order
+                                🛒 New {escape(site_name)} Order
                             </h2>
 
                             <p
@@ -873,7 +876,7 @@ def create_order(
                                 color: #737A74;
                             "
                         >
-                            This is an automatic TerraLens store notification.
+                            This is an automatic {escape(site_name)} store notification.
                         </p>
                     </div>
                 """,
@@ -1126,6 +1129,7 @@ def cancel_order(
     db: Session,
 ) -> Order:
 
+    site_name = get_site_name()
     order = db.scalar(
         select(Order)
         .options(selectinload(Order.items))
@@ -1219,7 +1223,7 @@ def cancel_order(
         customer_name = "Customer"
 
     send_admin_notification(
-        subject=f"❌ TerraLens order cancelled — {order.order_number}",
+        subject=f"❌ {site_name} order cancelled — {order.order_number}",
         html=f"""
             <div
                 style="

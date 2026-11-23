@@ -357,7 +357,7 @@ function NoResults({ title, text, actionLabel, onAction }) {
 }
 
 function CategoryPageContent({ slug }) {
-  const { siteName = "TerraLens" } = useContext(SiteBrandingContext);
+  const { siteName } = useContext(SiteBrandingContext);
 
   const [category, setCategory] = useState(null);
   const [products, setProducts] = useState([]);
@@ -716,7 +716,7 @@ export function CategoryPage() {
 
 
 function Categories() {
-  const { siteName = "TerraLens" } = useContext(SiteBrandingContext);
+  const { siteName } = useContext(SiteBrandingContext);
 
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);

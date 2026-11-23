@@ -44,7 +44,7 @@ function Account() {
   const navigate = useNavigate();
 
   const branding = useContext(SiteBrandingContext) || {};
-  const { siteName = "TerraLens" } = branding;
+  const { siteName } = branding;
 
   const [busy, setBusy] = useState(false);
 

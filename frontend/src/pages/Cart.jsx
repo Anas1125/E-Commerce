@@ -68,7 +68,7 @@ const getMaxQuantity = (product, item) => {
 };
 
 function Cart() {
-  const { siteName = "TerraLens" } =
+  const { siteName } =
     useContext(SiteBrandingContext) || {};
 
   const {

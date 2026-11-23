@@ -223,7 +223,7 @@ function StatItem({ value, title, text, valueClass = "text-[#2874F0]", className
 }
 
 function Home() {
-  const { heroImageUrl, siteName = "TerraLens" } = useContext(SiteBrandingContext);
+  const { heroImageUrl, siteName } = useContext(SiteBrandingContext);
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);

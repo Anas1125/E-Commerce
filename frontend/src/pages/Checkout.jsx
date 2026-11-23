@@ -239,7 +239,7 @@ function CheckoutContent() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { siteName = "TerraLens" } =
+  const { siteName } =
     useContext(SiteBrandingContext) || {};
 
   const [cart, setCart] = useState(null);

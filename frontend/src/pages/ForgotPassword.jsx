@@ -62,7 +62,7 @@ const getRequestError = (error) => {
 };
 
 function ForgotPassword() {
-  const { siteName = "TerraLens" } =
+  const { siteName } =
     useContext(SiteBrandingContext) || {};
 
   const [email, setEmail] = useState("");

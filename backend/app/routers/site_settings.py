@@ -20,6 +20,7 @@ from app.models.site_settings import SiteSettings
 from app.models.user import User
 from app.schemas.site_settings import (
     SiteNameUpdate,
+    SupportEmailUpdate,
     SiteSettingsResponse,
 )
 from app.services.dependencies import require_admin
@@ -263,4 +264,21 @@ def remove_branding_asset(
 
     logger.info("Branding asset '%s' removed by admin %s", asset_name, current_admin.id)
 
+    return settings
+
+@router.patch("/support-email", response_model=SiteSettingsResponse)
+def update_support_email(
+    data: SupportEmailUpdate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    settings = get_or_create_settings(db)
+    settings.support_email = str(data.support_email) if data.support_email else None
+    settings.updated_by_id = current_admin.id
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(settings)
     return settings

@@ -4,7 +4,7 @@ import SEO from "../components/SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
 
 function Terms() {
-  const { siteName = "TerraLens" } = useContext(
+  const { siteName, supportEmail } = useContext(
     SiteBrandingContext,
   );
 
@@ -125,11 +125,11 @@ function Terms() {
               </p>
 
               <a
-                href="mailto:hello@terralens.com"
+                href={supportEmail ? `mailto:${supportEmail}` : "/contact"}
                 className="mt-3 inline-flex cursor-pointer items-center gap-2 text-sm font-bold text-[#2874F0] hover:text-[#1f65d6]"
               >
                 <Mail size={16} />
-                hello@terralens.com
+                {supportEmail || "Contact support"}
               </a>
             </section>
 

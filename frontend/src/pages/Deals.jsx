@@ -212,7 +212,7 @@ function useProductImages(products) {
 }
 
 function Deals() {
-  const { siteName = "TerraLens" } = useContext(SiteBrandingContext);
+  const { siteName } = useContext(SiteBrandingContext);
 
   const [discounts, setDiscounts] = useState([]);
   const [products, setProducts] = useState([]);

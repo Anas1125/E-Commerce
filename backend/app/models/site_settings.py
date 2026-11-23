@@ -49,6 +49,8 @@ class SiteSettings(Base):
         server_default="TerraLens",
     )
 
+    support_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
     navbar_logo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     hero_image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)

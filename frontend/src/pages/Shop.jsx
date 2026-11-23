@@ -120,7 +120,7 @@ function PriceInput({ value, onChange, placeholder, label }) {
 }
 
 function Shop() {
-  const { siteName = "TerraLens" } = useContext(SiteBrandingContext);
+  const { siteName } = useContext(SiteBrandingContext);
 
   const [searchParams, setSearchParams] = useSearchParams();
 

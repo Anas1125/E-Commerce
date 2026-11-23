@@ -11,11 +11,10 @@ import {
 import SEO from "../components/SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
 
-const SUPPORT_EMAIL = "hello@terralens.com";
 
 function Contact() {
   const branding = useContext(SiteBrandingContext) || {};
-  const { siteName = "TerraLens" } = branding;
+  const { siteName, supportEmail } = branding;
   const [searchParams] = useSearchParams();
 
   const orderRef = searchParams.get("order")?.trim();
@@ -44,7 +43,7 @@ I need help with:
 Thank you.`;
 
   const emailHref =
-    `mailto:${SUPPORT_EMAIL}` +
+    `mailto:${supportEmail}` +
     `?subject=${encodeURIComponent(subject)}` +
     `&body=${encodeURIComponent(body)}`;
 
@@ -104,10 +103,10 @@ Thank you.`;
               </p>
 
               <a
-                href={emailHref}
+                href={supportEmail ? emailHref : undefined}
                 className="mt-5 inline-flex max-w-full items-center gap-2 break-all text-sm font-semibold text-[#486B57] hover:underline"
               >
-                {SUPPORT_EMAIL}
+                {supportEmail || "Support contact details will be available soon"}
                 <ArrowRight
                   size={16}
                   className="shrink-0"

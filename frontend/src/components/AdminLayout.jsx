@@ -24,7 +24,7 @@ import BrandMark from "./BrandMark";
 import SEO from "./SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
 
-const DEFAULT_SITE_NAME = "TerraLens";
+const DEFAULT_SITE_NAME = "Store";
 
 const nav = [
   [LayoutDashboard, "Overview", "/admin"],

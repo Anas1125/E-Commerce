@@ -1,3 +1,5 @@
+import { useContext } from "react";
+import { SiteBrandingContext } from "../context/site-branding-context";
 import { Link } from "react-router-dom";
 import { ArrowUp, ArrowUpRight, Mail, Phone } from "lucide-react";
 import BrandMark from "./BrandMark";
@@ -29,7 +31,7 @@ const trustItems = [
   { title: "Made for everyday", text: "Useful products, considered well" },
 ];
 
-const email = "hello@terralens.com";
+
 
 // Fill this in when you have a real number; the phone link stays hidden until then.
 const phone = null;
@@ -50,6 +52,7 @@ const bottomLinkClass =
   "transition-colors hover:text-[#486B57] focus-visible:outline-none focus-visible:underline focus-visible:underline-offset-4";
 
 function Footer() {
+  const { siteName, supportEmail: email } = useContext(SiteBrandingContext);
   const scrollToTop = () => {
     const top = document.getElementById("page-top");
 
@@ -114,7 +117,7 @@ function Footer() {
             <h2 className={headingClass}>Contact us</h2>
 
             <div className="mt-5 space-y-4">
-              <a href={`mailto:${email}`} className={contactClass}>
+              {email && <a href={`mailto:${email}`} className={contactClass}>
                 <Mail size={16} aria-hidden="true" />
                 <span>{email}</span>
                 <ArrowUpRight
@@ -122,7 +125,7 @@ function Footer() {
                   aria-hidden="true"
                   className={arrowClass}
                 />
-              </a>
+              </a>}
 
               {phone && (
                 <a href={phone.href} className={contactClass}>
@@ -157,7 +160,7 @@ function Footer() {
 
         {/* Bottom bar */}
         <div className="mt-7 flex flex-col gap-4 text-xs text-[#6A716B] sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} TerraLens. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} {siteName}. All rights reserved.</p>
 
           <div className="flex items-center gap-5">
             <Link to="/privacy" className={bottomLinkClass}>

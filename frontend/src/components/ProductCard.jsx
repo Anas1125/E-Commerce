@@ -38,7 +38,7 @@ function getErrorMessage(error, fallback) {
 }
 
 function ProductCard({ product, imageUrl }) {
-  const { siteName = "TerraLens" } =
+  const { siteName } =
     useContext(SiteBrandingContext);
 
   const {

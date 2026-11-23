@@ -5,6 +5,8 @@ from html import escape
 import resend
 from dotenv import load_dotenv
 
+from app.services.site_branding import get_site_name
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -16,9 +18,10 @@ def send_password_reset_email(
     email: str,
     reset_url: str,
     *,
-    site_name: str = "TerraLens",
+    site_name: str | None = None,
     expires_in_minutes: int = 30,
 ) -> None:
+    site_name = site_name or get_site_name()
     api_key = os.getenv("RESEND_API_KEY")
 
     if not api_key:

@@ -5,7 +5,7 @@ import SEO from "../components/SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
 
 function NotFound() {
-  const { siteName = "TerraLens" } = useContext(
+  const { siteName } = useContext(
     SiteBrandingContext,
   );
 

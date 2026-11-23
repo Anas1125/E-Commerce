@@ -6,6 +6,7 @@ from html import escape
 from fastapi import HTTPException, status
 from sqlalchemy import select
 
+from app.services.site_branding import get_site_name
 from app.models.order import Order
 from app.models.payment import Payment
 from app.models.refund import Refund
@@ -48,9 +49,10 @@ def _notify_refund_requested(
     amount: Decimal,
     reason: str | None,
 ) -> None:
+    site_name = get_site_name()
     try:
         send_admin_notification(
-            subject=f"💰 TerraLens refund requested — {escape(order_number)}",
+            subject=f"💰 {site_name} refund requested — {escape(order_number)}",
             html=f"""
             <div style="font-family: Arial, sans-serif; max-width: 680px; margin: 0 auto; padding: 28px; color: #1F2521;">
                 <div style="padding-bottom: 20px; border-bottom: 1px solid #E3E5DF;">
@@ -83,7 +85,7 @@ def _notify_refund_requested(
                 </div>
 
                 <p style="margin-top: 24px; font-size: 13px; color: #737A74;">
-                    Review this refund request from the TerraLens admin panel.
+                    Review this refund request from the {escape(site_name)} admin panel.
                 </p>
             </div>
             """,
@@ -103,6 +105,7 @@ def _notify_customer_refund_status(
     status: str,
     decision_note: str | None = None,
 ) -> None:
+    site_name = get_site_name()
     messages = {
         "requested": (
             f"Refund request received — order {order_number}",
@@ -179,7 +182,7 @@ def _notify_customer_refund_status(
           </div>
           {reason_html}
           <p style="margin-top:24px;color:#737A74;font-size:13px">
-            This is an automated TerraLens refund update.
+            This is an automated {escape(site_name)} refund update.
           </p>
         </div>
         """,

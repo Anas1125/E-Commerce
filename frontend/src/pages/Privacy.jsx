@@ -3,7 +3,7 @@ import SEO from "../components/SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
 
 function Privacy() {
-  const { siteName = "TerraLens" } = useContext(
+  const { siteName, supportEmail } = useContext(
     SiteBrandingContext,
   );
 
@@ -123,10 +123,10 @@ function Privacy() {
                 If you have questions about this Privacy Policy,
                 contact us at{" "}
                 <a
-                  href="mailto:hello@Terralens.com"
+                  href={supportEmail ? `mailto:${supportEmail}` : "/contact"}
                   className="cursor-pointer font-semibold text-[#2874F0] hover:underline"
                 >
-                  hello@terralens.com
+                  {supportEmail || "Contact support"}
                 </a>
                 .
               </p>
