@@ -637,7 +637,8 @@ function Home() {
   return (
     <main className="min-h-screen bg-[#F1F3F6]">
       <SEO
-        title="Home"
+        title="Online Shopping & Deals"
+        structuredData={{ "@context": "https://schema.org", "@type": "WebSite", name: siteName }}
         description={`Shop quality products at ${siteName}. Discover great deals, trusted products, secure checkout, and reliable delivery.`}
       />
 

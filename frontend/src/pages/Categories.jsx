@@ -485,6 +485,7 @@ function CategoryPageContent({ slug }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F1F3F6]">
+        <SEO title="Loading collection" noIndex />
         <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6 lg:px-8">
           <LoadingState label="Loading collection..." />
         </div>
@@ -495,6 +496,7 @@ function CategoryPageContent({ slug }) {
   if (error) {
     return (
       <div className="min-h-screen bg-[#F1F3F6]">
+        <SEO title="Collection unavailable" noIndex />
         <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6 lg:px-8">
           <EmptyState
             title="Collection unavailable"
