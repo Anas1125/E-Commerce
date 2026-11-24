@@ -1,3 +1,4 @@
+import SEO from "../components/SEO";
 import { Routes, Route } from "react-router-dom";
 
 import Home from "../pages/Home";
@@ -104,7 +105,7 @@ function AppRoutes() {
         />
 
         {/* Admin login */}
-        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/login" element={<><SEO title="Admin Login" noIndex /><AdminLogin /></>} />
 
         {/* Admin application */}
         <Route path="/admin" element={admin(AdminLayout)}>

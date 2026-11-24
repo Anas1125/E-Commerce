@@ -6,9 +6,9 @@ import { resolveMediaUrl } from "../services/api";
 const DEFAULT_DESCRIPTION =
   "Shop quality products with trusted service, secure checkout, and reliable delivery.";
 
-const DEFAULT_OG_IMAGE = "/og-default.png"; // 1200x630 PNG in /public
+const DEFAULT_OG_IMAGE = "/favicon.svg"; // Existing fallback; prefer uploaded product or hero images.
 
-const SITE_URL = (import.meta.env?.VITE_SITE_URL || "").replace(/\/+$/, "");
+const SITE_URL = (import.meta.env.VITE_SITE_URL || (import.meta.env.PROD ? "https://e-commerce-3q5.pages.dev" : "")).replace(/\/+$/, "");
 
 function toAbsoluteUrl(url, base) {
   if (!url) return "";
@@ -80,9 +80,9 @@ function SEO({
   structuredData = null,
 }) {
   const branding = useContext(SiteBrandingContext) ?? {};
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
 
-  const siteName = branding.siteName;
+  const siteName = branding.siteName || "Store";
   const heroImageUrl = branding.heroImageUrl || "";
 
   const structuredDataJson = structuredData
@@ -94,7 +94,11 @@ function SEO({
 
     const pageTitle = title ? `${title} | ${siteName}` : siteName;
 
-    const canonicalUrl = `${baseUrl}${pathname}`;
+    const path = pathname.replace(/\/+$/, "") || "/";
+    const canonicalUrl = `${baseUrl}${path}`;
+    const publicPath = ["/", "/shop", "/categories", "/deals", "/contact", "/privacy", "/terms"].includes(path) || /^\/(products\/[1-9]\d*|categories\/[a-z0-9]+(?:-[a-z0-9]+)*)$/.test(path);
+    const exclude = noIndex || !publicPath || (Boolean(search) && ["/shop", "/categories", "/deals", "/contact"].includes(path));
+    const summary = String(description || DEFAULT_DESCRIPTION).replace(/\s+/g, " ").trim().slice(0, 160);
 
     const imageUrl =
       toAbsoluteUrl(
@@ -108,11 +112,11 @@ function SEO({
 
     document.title = pageTitle;
 
-    setMetaTag("name", "description", description);
-    setMetaTag("name", "robots", noIndex ? "noindex,nofollow" : "index,follow");
+    setMetaTag("name", "description", summary);
+    setMetaTag("name", "robots", exclude ? "noindex,follow" : "index,follow");
 
     setMetaTag("property", "og:title", pageTitle);
-    setMetaTag("property", "og:description", description);
+    setMetaTag("property", "og:description", summary);
     setMetaTag("property", "og:type", type);
     setMetaTag("property", "og:url", canonicalUrl);
     setMetaTag("property", "og:site_name", siteName);
@@ -120,15 +124,22 @@ function SEO({
 
     setMetaTag("name", "twitter:card", "summary_large_image");
     setMetaTag("name", "twitter:title", pageTitle);
-    setMetaTag("name", "twitter:description", description);
+    setMetaTag("name", "twitter:description", summary);
     setMetaTag("name", "twitter:image", imageUrl);
 
     setCanonical(canonicalUrl);
-    setStructuredData(structuredDataJson);
+    if (!exclude && structuredDataJson) {
+      const data = JSON.parse(structuredDataJson);
+      if (data.offers) data.offers.url = canonicalUrl;
+      if (data["@type"] === "WebSite") data.url = baseUrl;
+      setStructuredData(JSON.stringify(data));
+    } else {
+      removeStructuredData();
+    }
 
     return () => {
       removeStructuredData();
-      setMetaTag("name", "robots", "index,follow");
+
     };
   }, [
     title,
@@ -140,6 +151,7 @@ function SEO({
     siteName,
     heroImageUrl,
     pathname,
+    search,
   ]);
 
   return null;
