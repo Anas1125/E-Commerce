@@ -114,3 +114,44 @@ def test_existing_redemption_limits_remain_enforced(
     db.add.assert_not_called()
     db.commit.assert_not_called()
     db.rollback.assert_called_once()
+
+
+def test_cod_order_notification_escapes_html(monkeypatch):
+    from html import escape
+
+    user, request, db, _ = checkout_fixture(monkeypatch, first_order_only=False)
+    results = list(db.scalar.side_effect)
+    cart, inventory = results[3], results[4]
+    # The checkout reads inventory again when reserving the purchased items.
+    db.scalar.side_effect = results[:7] + [inventory]
+    user.first_name = "<b>Customer & Co</b>"
+    user.last_name = "O'Neil"
+    user.email = "<i>email</i>@example.com"
+    user.phone_number = "<em>phone</em>"
+    cart.items[0].product.name = '<img src="example"> & Product'
+    monkeypatch.setattr(order_service, "get_site_name", lambda: "<Shop & Co>")
+    send = Mock()
+    monkeypatch.setattr(order_service, "send_admin_notification", send)
+    monkeypatch.setattr(order_service, "send_low_stock_notification", Mock())
+    monkeypatch.setattr(order_service, "send_out_of_stock_notification", Mock())
+
+    def assign_order_id():
+        db.add.call_args_list[0].args[0].id = 42
+
+    db.flush.side_effect = assign_order_id
+    order = order_service.create_order(user=user, order_data=request, db=db)
+
+    db.commit.assert_called_once()
+    send.assert_called_once()
+    payload = send.call_args.kwargs
+    for value in (
+        user.first_name + " " + user.last_name,
+        user.email,
+        user.phone_number,
+        cart.items[0].product.name,
+        "<Shop & Co>",
+    ):
+        assert escape(value) in payload["html"]
+        assert value not in payload["html"]
+    assert "<table" in payload["html"]
+    assert order.total_amount == Decimal("90.00")
