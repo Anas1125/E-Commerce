@@ -265,12 +265,14 @@ def create_order(
 ) -> Order:
 
     site_name = get_site_name()
-    if order_data.idempotency_key:
-        db.scalar(
-            select(User.id)
-            .where(User.id == user.id)
-            .with_for_update()
-        )
+    # Serialize every checkout for this customer, including requests without
+    # an idempotency key. First-order eligibility must be evaluated after
+    # any earlier checkout for the same customer has committed.
+    db.scalar(
+        select(User.id)
+        .where(User.id == user.id)
+        .with_for_update()
+    )
 
     existing_order = _get_existing_idempotent_order(
         user=user,
@@ -459,6 +461,17 @@ def create_order(
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="You have reached the usage limit for this coupon",
+                )
+
+            # Match the coupon preview rule: any previous order counts,
+            # regardless of payment or cancellation status. The customer
+            # row lock above prevents concurrent checkouts from bypassing it.
+            if coupon.first_order_only and db.scalar(
+                select(Order.id).where(Order.user_id == user.id).limit(1)
+            ) is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This coupon is valid for your first order only",
                 )
 
             if subtotal < coupon.minimum_order_amount:
