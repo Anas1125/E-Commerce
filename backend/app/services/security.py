@@ -23,7 +23,7 @@ if JWT_ACCESS_TOKEN_EXPIRE_MINUTES <= 0:
     )
 
 
-def create_access_token(user_id: int, role: str) -> str:
+def create_access_token(user_id: int, role: str, *, cookie: bool = False) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES
     )
@@ -33,6 +33,9 @@ def create_access_token(user_id: int, role: str) -> str:
         "role": role,
         "exp": expire,
     }
+
+    if cookie:
+        payload["session_kind"] = "cookie"
 
     return jwt.encode(
         payload,

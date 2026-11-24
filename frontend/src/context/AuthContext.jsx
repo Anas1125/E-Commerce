@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import api, { setUnauthorizedHandler } from "../services/api";
+import api, { COOKIE_AUTH, setUnauthorizedHandler } from "../services/api";
 import AuthContext, {
   clearLegacySharedToken,
   getActiveSessionRole,
@@ -18,11 +18,11 @@ function AuthProvider({ children }) {
   const [adminUser, setAdminUser] = useState(null);
 
   const [customerLoading, setCustomerLoading] = useState(() =>
-    Boolean(getSessionToken("customer")),
+    COOKIE_AUTH || Boolean(getSessionToken("customer")),
   );
 
   const [adminLoading, setAdminLoading] = useState(() =>
-    Boolean(getSessionToken("admin")),
+    COOKIE_AUTH || Boolean(getSessionToken("admin")),
   );
 
   const [sessionErrors, setSessionErrors] = useState({
@@ -39,11 +39,15 @@ function AuthProvider({ children }) {
     let mounted = true;
 
     clearLegacySharedToken();
+    if (COOKIE_AUTH) {
+      removeSessionToken("customer");
+      removeSessionToken("admin");
+    }
 
     const restoreSession = async (role, setUser, setLoading) => {
       const token = getSessionToken(role);
 
-      if (!token) {
+      if (!COOKIE_AUTH && !token) {
         if (mounted) {
           setLoading(false);
         }
@@ -52,11 +56,9 @@ function AuthProvider({ children }) {
       }
 
       try {
-        const { data } = await api.get("/auth/me", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        const { data } = await api.get("/auth/me", COOKIE_AUTH ? {
+          sessionRole: role, skipUnauthorized: true,
+        } : { headers: { Authorization: `Bearer ${token}` } });
 
         if (mounted) {
           setUser(data);
@@ -155,7 +157,7 @@ function AuthProvider({ children }) {
   const login = useCallback((token, userData, role, remember = false) => {
     const sessionRole = role === "admin" ? "admin" : "customer";
 
-    setSessionToken(sessionRole, token, remember);
+    if (!COOKIE_AUTH && !setSessionToken(sessionRole, token, remember)) return false;
     setSessionErrors((current) => ({ ...current, [sessionRole]: false }));
 
     if (sessionRole === "admin") {
@@ -165,9 +167,10 @@ function AuthProvider({ children }) {
       setCustomerUser(userData);
       setCustomerLoading(false);
     }
+    return true;
   }, []);
 
-  const logout = useCallback(
+  const clearSession = useCallback(
     (role) => {
       const target =
         role === "admin" || role === "customer" ? role : activeRole;
@@ -190,11 +193,18 @@ function AuthProvider({ children }) {
     [activeRole],
   );
 
-  useEffect(() => {
-    setUnauthorizedHandler((role) => logout(role));
+  const logout = useCallback(async (role) => {
+    const target = role === "admin" || role === "customer" ? role : activeRole;
+    if (COOKIE_AUTH) {
+      await api.post("/auth/session/logout", {}, { sessionRole: target, skipUnauthorized: true });
+    }
+    clearSession(target);
+  }, [activeRole, clearSession]);
 
+  useEffect(() => {
+    setUnauthorizedHandler((role) => clearSession(role));
     return () => setUnauthorizedHandler(null);
-  }, [logout]);
+  }, [clearSession]);
 
   const updateUser = useCallback(
     (updatedUser) => {
