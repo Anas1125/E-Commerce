@@ -1,0 +1,6 @@
+/*
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' https://checkout.razorpay.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://e-commerce-api-lac-psi.vercel.app https://razorpay.com https://*.razorpay.com; frame-src 'self' https://razorpay.com https://*.razorpay.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://razorpay.com https://*.razorpay.com; frame-ancestors 'none';
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
