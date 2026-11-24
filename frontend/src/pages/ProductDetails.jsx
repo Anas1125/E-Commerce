@@ -411,6 +411,7 @@ function ProductDetailsContent({ id }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F1F3F6] px-4 py-12 sm:px-6">
+        <SEO title="Loading product" noIndex />
         <div className="mx-auto max-w-7xl">
           <LoadingState label="Loading product..." />
         </div>
@@ -421,6 +422,7 @@ function ProductDetailsContent({ id }) {
   if (loadError) {
     return (
       <div className="min-h-screen bg-[#F1F3F6] px-4 py-16">
+        <SEO title="Product unavailable" noIndex />
         <div className="mx-auto max-w-4xl rounded-md border border-[#E0E0E0] bg-white px-6 py-16 text-center">
           <h1 className="text-2xl font-bold text-[#212121]">
             Couldn’t load this product
@@ -450,6 +452,7 @@ function ProductDetailsContent({ id }) {
   if (notFound || !product) {
     return (
       <div className="min-h-screen bg-[#F1F3F6] px-4 py-16">
+        <SEO title="Product not found" noIndex />
         <div className="mx-auto max-w-4xl rounded-md border border-[#E0E0E0] bg-white px-6 py-16 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#E8F0FE] text-[#2874F0]">
             <ShoppingBag size={26} />
