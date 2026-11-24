@@ -21,7 +21,7 @@ import {
 } from "../components/AdminUI";
 
 const BLANK = { name: "", is_active: true };
-const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"];
+const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const UPLOAD_TIMEOUT_MS = 120000;
 const PAGE_SIZE = 10;
@@ -374,7 +374,7 @@ function AdminBrands() {
     const extension = `.${file.name.split(".").pop()?.toLowerCase()}`;
 
     if (!ALLOWED_EXTENSIONS.includes(extension)) {
-      setFormError("Choose a JPG, JPEG, PNG, WebP, GIF, or SVG image.");
+      setFormError("Choose a JPG, JPEG, PNG, WebP, or static GIF image.");
       return;
     }
 
@@ -804,7 +804,7 @@ function AdminBrands() {
                 <input
                   className="sr-only"
                   type="file"
-                  accept=".jpg,.jpeg,.png,.webp,.gif,.svg"
+                  accept=".jpg,.jpeg,.png,.webp,.gif"
                   onChange={chooseLogo}
                 />
               </label>

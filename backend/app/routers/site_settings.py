@@ -1,6 +1,5 @@
 import logging
 import os
-from pathlib import Path
 from uuid import uuid4
 
 from fastapi import (
@@ -25,26 +24,11 @@ from app.schemas.site_settings import (
 )
 from app.services.dependencies import require_admin
 from app.services.storage import delete_file, save_file
+from app.services.image_upload import read_safe_image
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/site-settings", tags=["Site Settings"])
-
-MAX_IMAGE_SIZE = 10 * 1024 * 1024
-
-IMAGE_FORMATS = {
-    ".jpg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
-    ".jpeg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
-    ".png": ("image/png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
-    ".webp": (
-        "image/webp",
-        lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP",
-    ),
-    ".ico": (
-        ("image/x-icon", "image/vnd.microsoft.icon"),
-        lambda data: len(data) >= 6 and data[:4] == b"\x00\x00\x01\x00",
-    ),
-}
 
 SETTING_FIELDS = {
     "navbar_logo": "navbar_logo_url",
@@ -146,47 +130,11 @@ def upload_branding_asset(
             detail="Branding image type not found",
         )
 
-    extension = Path(file.filename or "").suffix.lower()
-    image_format = IMAGE_FORMATS.get(extension)
-
-    if image_format is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Use a JPG, JPEG, PNG, WebP, or ICO image",
-        )
-
-    content_types, signature_matches = image_format
-
-    if isinstance(content_types, str):
-        content_types = (content_types,)
-
-    if file.content_type not in (*content_types, "application/octet-stream"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Image file type does not match its extension",
-        )
-
-    contents = file.file.read(MAX_IMAGE_SIZE + 1)
-
-    if not contents:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The selected image is empty",
-        )
-
-    if len(contents) > MAX_IMAGE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Images must be 10 MB or smaller",
-        )
-
-    if not signature_matches(contents):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The selected file is not a valid supported image",
-        )
-
-    filename = f"{uuid4().hex}{extension}"
+    try:
+        contents = read_safe_image(file, allow_ico=True)
+    finally:
+        file.file.close()
+    filename = f"{uuid4().hex}.webp"
     public_base_url = os.getenv("PUBLIC_API_URL") or str(request.base_url)
     stored_url = None
     old_url = None
@@ -197,7 +145,7 @@ def upload_branding_asset(
             "branding",
             filename,
             contents,
-            content_types[0],
+            "image/webp",
             f"{public_base_url.rstrip('/')}/uploads/branding/{filename}",
         )
 
@@ -218,9 +166,6 @@ def upload_branding_asset(
             delete_local_branding_asset(stored_url)
 
         raise
-
-    finally:
-        file.file.close()
 
     delete_local_branding_asset(old_url, keep=stored_url)
 
