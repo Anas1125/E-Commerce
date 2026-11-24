@@ -386,3 +386,35 @@ def test_shipping_status_email_is_sent_after_commit(monkeypatch):
     assert emails[0]["subject"].startswith(
         "Your order has shipped"
     )
+
+
+def test_customer_cancellation_admin_email_escapes_html(monkeypatch):
+    from html import escape
+    from unittest.mock import Mock
+
+    order = make_order()
+    order.order_number = "<b>Order & reference</b>"
+    user = SimpleNamespace(
+        id=3, first_name="<b>Customer</b>", last_name="O'Neil",
+        email="<i>email</i>@example.com", phone_number="<em>phone</em>",
+    )
+    db = FakeDB([order, make_payment()])
+    send = Mock()
+    monkeypatch.setattr(service, "get_site_name", lambda: "Test Store")
+    monkeypatch.setattr(service, "send_admin_notification", send)
+    monkeypatch.setattr(service, "_notify_customer_order_status", Mock())
+
+    result = service.cancel_order(order.id, user, db)
+
+    assert result.order_status == "cancelled"
+    assert db.commits == 1
+    send.assert_called_once()
+    payload = send.call_args.kwargs
+    for value in (
+        order.order_number, user.first_name + " " + user.last_name,
+        user.email, user.phone_number,
+    ):
+        assert escape(value) in payload["html"]
+        assert value not in payload["html"]
+    assert "<strong>Customer:</strong>" in payload["html"]
+    assert order.order_number in payload["subject"]

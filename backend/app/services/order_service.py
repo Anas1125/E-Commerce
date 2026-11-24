@@ -699,7 +699,7 @@ def create_order(
             items_html += f"""
                 <tr>
                     <td style="padding: 10px 0; border-bottom: 1px solid #E3E5DF;">
-                        {product.name}
+                        {escape(product.name)}
                     </td>
 
                     <td style="padding: 10px 0; border-bottom: 1px solid #E3E5DF; text-align: center;">
@@ -765,27 +765,27 @@ def create_order(
                         <div style="padding: 22px 0;">
                             <p>
                                 <strong>Order:</strong>
-                                {order.order_number}
+                                {escape(str(order.order_number))}
                             </p>
 
                             <p>
                                 <strong>Customer:</strong>
-                                {customer_name}
+                                {escape(customer_name)}
                             </p>
 
                             <p>
                                 <strong>Email:</strong>
-                                {user.email}
+                                {escape(user.email or "")}
                             </p>
 
                             <p>
                                 <strong>Phone:</strong>
-                                {user.phone_number}
+                                {escape(user.phone_number or "")}
                             </p>
 
                             <p>
                                 <strong>Payment:</strong>
-                                {order.payment_method.upper()}
+                                {escape(order.payment_method.upper())}
                             </p>
                         </div>
 
@@ -1275,27 +1275,27 @@ def cancel_order(
                 <div style="padding: 22px 0;">
                     <p>
                         <strong>Order:</strong>
-                        {order.order_number}
+                        {escape(str(order.order_number))}
                     </p>
 
                     <p>
                         <strong>Customer:</strong>
-                        {customer_name}
+                        {escape(customer_name)}
                     </p>
 
                     <p>
                         <strong>Email:</strong>
-                        {user.email}
+                        {escape(user.email or "")}
                     </p>
 
                     <p>
                         <strong>Phone:</strong>
-                        {user.phone_number}
+                        {escape(user.phone_number or "")}
                     </p>
 
                     <p>
                         <strong>Payment:</strong>
-                        {order.payment_method.upper()}
+                        {escape(order.payment_method.upper())}
                     </p>
                 </div>
 
