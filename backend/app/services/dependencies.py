@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,7 @@ def get_current_user(
             token,
             JWT_SECRET_KEY,
             algorithms=[JWT_ALGORITHM],
+            options={"require": ["sub", "exp"]},
         )
 
         user_id = payload.get("sub")
@@ -33,7 +35,7 @@ def get_current_user(
                 detail="Invalid authentication token",
             )
 
-        if int(user_id) <= 0:
+        if int(user_id) <= 0 or int(user_id) > 2**63 - 1:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication token",
@@ -43,7 +45,7 @@ def get_current_user(
             select(User).where(User.id == int(user_id))
         )
 
-    except (JWTError, ValueError):
+    except (InvalidTokenError, ValueError, OverflowError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
