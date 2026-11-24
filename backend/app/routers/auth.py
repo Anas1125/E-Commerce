@@ -5,8 +5,9 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
+from typing import Literal
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,7 +26,8 @@ from app.services.auth import hash_password, verify_password
 from app.services.dependencies import get_current_user
 from app.services.email import send_password_reset_email
 from app.services.notifications import send_admin_notification
-from app.services.security import create_access_token
+from app.services.security import create_access_token, JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+from app.services.cookie_session import (bearer_disabled, cookie_enabled, cookie_name, require_proxy, require_same_origin, session_role)
 
 logger = logging.getLogger(__name__)
 
@@ -256,14 +258,7 @@ def register(
     return user
 
 
-@router.post(
-    "/login",
-    response_model=TokenResponse,
-)
-def login(
-    user_data: UserLogin,
-    db: Session = Depends(get_db),
-):
+def _authenticate(user_data: UserLogin, db: Session) -> User:
     email = _normalize_email(user_data.email)
 
     user = db.scalar(
@@ -287,15 +282,61 @@ def login(
             detail="User account is inactive",
         )
 
-    access_token = create_access_token(
-        user_id=user.id,
-        role=user.role,
-    )
+    return user
 
+
+@router.post("/login", response_model=TokenResponse)
+def login(user_data: UserLogin, db: Session = Depends(get_db)):
+    if bearer_disabled():
+        raise HTTPException(410, "Use the website to sign in")
+    user = _authenticate(user_data, db)
     return {
-        "access_token": access_token,
+        "access_token": create_access_token(user_id=user.id, role=user.role),
         "token_type": "bearer",
     }
+
+
+class CookieLogin(UserLogin):
+    role: Literal["customer", "admin"]
+    remember: bool = False
+
+
+@router.post("/session/login", response_model=UserResponse)
+def login_session(
+    user_data: CookieLogin, request: Request, response: Response,
+    db: Session = Depends(get_db),
+):
+    if not cookie_enabled():
+        raise HTTPException(503, "Cookie authentication is not configured")
+    require_proxy(request)
+    require_same_origin(request, always=True)
+    role = session_role(request)
+    if role != user_data.role:
+        raise HTTPException(400, "Session role mismatch")
+    user = _authenticate(user_data, db)
+    if user.role != role:
+        raise HTTPException(403, "Use the appropriate login page for this account")
+    token = create_access_token(user.id, role, cookie=True)
+    response.set_cookie(
+        key=cookie_name(role), value=token, httponly=True, secure=True,
+        samesite="lax", path="/",
+        max_age=JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        if role == "customer" and user_data.remember else None,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return user
+
+
+@router.post("/session/logout", status_code=204)
+def logout_session(request: Request):
+    if not cookie_enabled():
+        raise HTTPException(503, "Cookie authentication is not configured")
+    require_proxy(request)
+    require_same_origin(request, always=True)
+    role = session_role(request)
+    response = Response(status_code=204, headers={"Cache-Control": "no-store"})
+    response.delete_cookie(cookie_name(role), path="/", secure=True, httponly=True, samesite="lax")
+    return response
 
 
 @router.post(

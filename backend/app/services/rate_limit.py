@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse
 from app.database import SessionLocal
 from app.models.rate_limit import RateLimitBucket
 from app.services.security import JWT_SECRET_KEY
+from app.services.cookie_session import trusted_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class Rule:
 GENERAL = Rule("api", 120, 60)
 POST_RULES = {
     "/api/auth/login": Rule("login", 5, 900),
+    "/api/auth/session/login": Rule("login", 5, 900),
     "/api/auth/register": Rule("register", 5, 3600),
     "/api/auth/forgot-password": Rule("forgot", 3, 900),
     "/api/auth/reset-password": Rule("reset", 5, 900),
@@ -64,6 +66,8 @@ def client_key(request):
     # trust arbitrary forwarding headers when running locally.
     raw = (request.headers.get("x-vercel-forwarded-for") if os.getenv("VERCEL")
            else (request.client.host if request.client else None))
+    if trusted_proxy(request):
+        raw = request.headers.get("x-store-client-ip")
     try:
         ip = ipaddress.ip_address(raw or "")
         if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
