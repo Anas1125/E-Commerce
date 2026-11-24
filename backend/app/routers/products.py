@@ -1,4 +1,3 @@
-from pathlib import Path
 from uuid import uuid4
 import os
 import logging
@@ -25,6 +24,8 @@ from app.schemas.product_image import (
 from app.models.inventory import Inventory
 from app.schemas.inventory import InventoryResponse, InventoryUpdate
 from app.services.storage import delete_file, save_file
+from app.services.image_upload import read_safe_image
+from starlette.concurrency import run_in_threadpool
 
 
 router = APIRouter(
@@ -65,15 +66,6 @@ def assign_product_brand(db: Session, product: Product, product_data: ProductCre
     elif not brand.is_active and brand.id != product.brand_id:
         raise HTTPException(status_code=400, detail="Brand is inactive")
     product.brand_record = brand
-
-MAX_PRODUCT_IMAGE_SIZE = 10 * 1024 * 1024
-IMAGE_FORMATS = {
-    ".jpg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
-    ".jpeg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
-    ".png": ("image/png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
-    ".webp": ("image/webp", lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP"),
-}
-
 
 def product_with_available_stock(product: Product, db: Session) -> ProductResponse:
     inventory = db.scalar(
@@ -183,23 +175,12 @@ async def upload_product_image(
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    extension = Path(file.filename or "").suffix.lower()
-    image_format = IMAGE_FORMATS.get(extension)
-    if image_format is None:
-        raise HTTPException(status_code=400, detail="Use a JPG, JPEG, PNG, or WebP image")
-    content_type, signature_matches = image_format
-    if file.content_type not in (content_type, "application/octet-stream"):
-        raise HTTPException(status_code=400, detail="Image file type does not match its extension")
-
-    contents = await file.read(MAX_PRODUCT_IMAGE_SIZE + 1)
-    if not contents:
-        raise HTTPException(status_code=400, detail="The selected image is empty")
-    if len(contents) > MAX_PRODUCT_IMAGE_SIZE:
-        raise HTTPException(status_code=413, detail="Product images must be 10 MB or smaller")
-    if not signature_matches(contents):
-        raise HTTPException(status_code=400, detail="The selected file is not a valid supported image")
-
-    filename = f"{uuid4().hex}{extension}"
+    try:
+        contents = await run_in_threadpool(read_safe_image, file)
+    finally:
+        await file.close()
+    filename = f"{uuid4().hex}.webp"
+    content_type = "image/webp"
     relative_url = f"/uploads/products/{filename}"
     public_base_url = os.getenv(
         "PUBLIC_API_URL",
@@ -232,9 +213,6 @@ async def upload_product_image(
         db.rollback()
         delete_file(stored_url, "products")
         raise
-    finally:
-        await file.close()
-
     return image
 
 

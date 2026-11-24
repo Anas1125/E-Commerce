@@ -16,6 +16,7 @@ from app.models.product import Product
 from app.schemas.category import CategoryCreate, CategoryResponse
 from app.services.dependencies import require_admin
 from app.services.storage import delete_file, save_file
+from app.services.image_upload import read_safe_image
 
 
 router = APIRouter(
@@ -24,16 +25,7 @@ router = APIRouter(
 )
 
 UPLOAD_PATH_PREFIX = "/uploads/categories/"
-MAX_IMAGE_BYTES = 10 * 1024 * 1024
 SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-
-CATEGORY_IMAGE_FORMATS = {
-    ".jpg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
-    ".jpeg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
-    ".png": ("image/png", lambda data: data.startswith(b"\x89PNG\r\n\x1a\n")),
-    ".webp": ("image/webp", lambda data: data.startswith(b"RIFF") and data[8:12] == b"WEBP"),
-}
-
 
 def _clean_name(name: str) -> str:
     cleaned = " ".join(name.split())
@@ -126,25 +118,12 @@ async def upload_category_image(
     request: Request,
     file: UploadFile = File(...),
 ):
-    extension = Path(file.filename or "").suffix.lower()
-    image_format = CATEGORY_IMAGE_FORMATS.get(extension)
-    if image_format is None:
-        raise HTTPException(status_code=400, detail="Use a JPG, JPEG, PNG, or WebP image")
-    content_type, signature_matches = image_format
-    if file.content_type not in (content_type, "application/octet-stream"):
-        raise HTTPException(status_code=400, detail="Image file type does not match its extension")
-
-    contents = await file.read(MAX_IMAGE_BYTES + 1)
-    await file.close()
-
-    if not contents:
-        raise HTTPException(status_code=400, detail="The selected image is empty")
-    if len(contents) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Category images must be 10 MB or smaller")
-    if not signature_matches(contents):
-        raise HTTPException(status_code=400, detail="The selected file is not a valid supported image")
-
-    filename = f"{uuid4().hex}{extension}"
+    try:
+        contents = await run_in_threadpool(read_safe_image, file)
+    finally:
+        await file.close()
+    filename = f"{uuid4().hex}.webp"
+    content_type = "image/webp"
     public_base_url = os.getenv(
         "PUBLIC_API_URL",
         str(request.base_url).rstrip("/"),

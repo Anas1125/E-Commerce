@@ -11,12 +11,12 @@ from app.models.product import Product
 from app.schemas.brand import BrandCreate, BrandResponse
 from app.services.dependencies import require_admin
 from app.services.storage import delete_file, save_file
+from app.services.image_upload import read_safe_image
 
 
 router = APIRouter(prefix="/api/brands", tags=["Brands"])
 
 UPLOAD_URL_PREFIX = "/uploads/brands/"
-MAX_LOGO_BYTES = 10 * 1024 * 1024
 
 def _clean_name(name: str) -> str:
     cleaned = " ".join(name.split())
@@ -42,52 +42,15 @@ def _validate_logo_url(logo_url: str | None) -> str | None:
     )
 
 
-IMAGE_CONTENT_TYPES = {
-    ".jpg": "image/jpeg",
-    ".png": "image/png",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
-
-
-def _detect_image_extension(header: bytes) -> str | None:
-    if header.startswith(b"\xff\xd8\xff"):
-        return ".jpg"
-    if header.startswith(b"\x89PNG\r\n\x1a\n"):
-        return ".png"
-    if header.startswith((b"GIF87a", b"GIF89a")):
-        return ".gif"
-    if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
-        return ".webp"
-    return None
-
-
 def _save_logo_file(file: UploadFile) -> str:
-    """Read the upload with a size cap, store it, and return its URL."""
-    header = file.file.read(16)
-    extension = _detect_image_extension(header)
+    try:
+        contents = read_safe_image(file, allow_gif=True)
+    finally:
+        file.file.close()
 
-    if extension is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Upload a valid JPG, PNG, WebP or GIF image",
-        )
-
-    contents = header + file.file.read(MAX_LOGO_BYTES + 1 - len(header))
-
-    if len(contents) > MAX_LOGO_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail="Image must be 10 MB or smaller",
-        )
-
-    filename = f"{uuid4().hex}{extension}"
-
+    filename = f"{uuid4().hex}.webp"
     return save_file(
-        "brands",
-        filename,
-        contents,
-        IMAGE_CONTENT_TYPES[extension],
+        "brands", filename, contents, "image/webp",
         f"{UPLOAD_URL_PREFIX}{filename}",
     )
 
