@@ -26,6 +26,7 @@ const secureProductionApiBaseUrl =
     : configuredApiBaseUrl;
 
 export const API_BASE_URL = secureProductionApiBaseUrl;
+export const COOKIE_AUTH = import.meta.env.PROD && import.meta.env.VITE_COOKIE_AUTH === "true";
 
 if (import.meta.env.PROD && !import.meta.env.VITE_API_BASE_URL) {
   console.error(
@@ -71,11 +72,18 @@ export const setUnauthorizedHandler = (handler) => {
 };
 
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`,
+  baseURL: COOKIE_AUTH ? "/api" : `${API_BASE_URL}/api`,
+  withCredentials: COOKIE_AUTH,
   timeout: REQUEST_TIMEOUT_MS,
 });
 
 api.interceptors.request.use((config) => {
+  if (COOKIE_AUTH) {
+    const role = config.sessionRole || getActiveSessionRole();
+    config.headers["X-Session-Role"] = role;
+    config.sessionRole = role;
+    return config;
+  }
   const isLoginRequest =
     /auth\/(login|register)(?:\?|$)/i.test(config.url || "");
 
@@ -96,7 +104,9 @@ api.interceptors.response.use(
   (error) => {
     const { sessionRole, sessionToken } = error.config || {};
 
-    if (
+    if (COOKIE_AUTH && error.response?.status === 401 && !error.config?.skipUnauthorized) {
+      unauthorizedHandler?.(sessionRole);
+    } else if (
       error.response?.status === 401 &&
       sessionToken &&
       getSessionToken(sessionRole) === sessionToken

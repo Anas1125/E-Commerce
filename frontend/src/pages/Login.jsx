@@ -18,7 +18,7 @@ import {
   useLocation,
 } from "react-router-dom";
 
-import api from "../services/api";
+import api, { COOKIE_AUTH } from "../services/api";
 import useAuth from "../context/useAuth";
 import SEO from "../components/SEO";
 import { SiteBrandingContext } from "../context/site-branding-context";
@@ -104,6 +104,13 @@ function Login() {
     setSubmitting(true);
 
     try {
+      if (COOKIE_AUTH) {
+        const { data } = await api.post("/auth/session/login", {
+          email: email.trim().toLowerCase(), password, role: "customer", remember: rememberMe,
+        }, { sessionRole: "customer", skipUnauthorized: true });
+        login(null, data, "customer", rememberMe);
+        return;
+      }
       const { data } = await api.post("/auth/login", {
         email: email.trim().toLowerCase(),
         password,

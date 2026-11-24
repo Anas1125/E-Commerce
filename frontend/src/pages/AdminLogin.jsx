@@ -1,7 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, Leaf } from "lucide-react";
 import { Navigate, useLocation } from "react-router-dom";
-import api from "../services/api";
+import api, { COOKIE_AUTH } from "../services/api";
 import useAuth from "../context/useAuth";
 import BrandMark from "../components/BrandMark";
 
@@ -66,6 +66,13 @@ function AdminLogin() {
     setError("");
 
     try {
+      if (COOKIE_AUTH) {
+        const { data } = await api.post("/auth/session/login", {
+          email: email.trim(), password, role: "admin",
+        }, { sessionRole: "admin", skipUnauthorized: true });
+        login(null, data, "admin");
+        return;
+      }
       const { data } = await api.post("/auth/login", {
         email: email.trim(),
         password,
