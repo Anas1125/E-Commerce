@@ -20,6 +20,7 @@ from app.models.order_status_history import OrderStatusHistory
 from app.models.site_settings import SiteSettings
 from app.models.password_reset_token import PasswordResetToken
 from app.models.refund_item import RefundItem
+from app.models.rate_limit import RateLimitBucket
 
 
 
@@ -46,4 +47,5 @@ __all__ = [
     "SiteSettings",
     "PasswordResetToken",
     "RefundItem",
+    "RateLimitBucket",
 ]
