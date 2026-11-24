@@ -9,6 +9,8 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from app.services.rate_limit import rate_limit_middleware, cleanup_expired_buckets, rate_limits_enabled
 
 from app.routers.auth import router as auth_router
 from app.routers.categories import router as categories_router
@@ -69,6 +71,7 @@ EXTRA_CORS_ORIGINS = [
     for origin in os.getenv("CORS_ORIGINS", "").split(",")
     if origin.strip()
 ]
+app.add_middleware(BaseHTTPMiddleware, dispatch=rate_limit_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -81,7 +84,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Total-Count"],
+    expose_headers=["X-Total-Count", "Retry-After"],
 )
 
 app.include_router(auth_router)
@@ -124,5 +127,8 @@ def cron_expire_upi_orders(authorization: str | None = Header(default=None)):
         authorization, f"Bearer {secret}"
     ):
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if rate_limits_enabled():
+        cleanup_expired_buckets()
 
     return {"expired": run_upi_expiry_sweep()}

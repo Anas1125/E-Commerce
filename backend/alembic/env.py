@@ -1,5 +1,3 @@
-import os
-
 from dotenv import load_dotenv
 from logging.config import fileConfig
 
@@ -8,25 +6,14 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from app.database import Base
+from app.database import Base, DATABASE_URL
 from app import models
 
 load_dotenv()
 
-database_url = os.getenv("DATABASE_URL")
-
-if database_url.startswith("postgres://"):
-    database_url = database_url.replace(
-        "postgres://", "postgresql://", 1
-    )
-
-if not database_url:
-    raise RuntimeError("DATABASE_URL is not set")
-
-
 # Alembic Config object
 config = context.config
-config.set_main_option("sqlalchemy.url", database_url)
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 # Configure Python logging
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
